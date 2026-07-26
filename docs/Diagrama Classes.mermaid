@@ -1,0 +1,108 @@
+erDiagram
+    users ||--o{ group_memberships : "é membro"
+    grupos ||--o{ group_memberships : "possui"
+    users ||--o{ grupos : "cria (created_by)"
+    users ||--o{ invites : "cria (created_by)"
+    grupos ||--o{ invites : "possui"
+    grupos ||--o{ players : "possui"
+    grupos ||--o{ events : "possui"
+    events ||--o{ teams : "possui"
+    events ||--o{ matches : "possui"
+    teams ||--o{ team_players : "contém"
+    players ||--o{ team_players : "participa"
+    teams ||--o{ matches : "team_a"
+    teams ||--o{ matches : "team_b"
+    matches ||--o{ match_stats : "possui"
+    players ||--o{ match_stats : "registra"
+    teams |o--o{ match_stats : "por time (opcional)"
+
+    users {
+        int id PK
+        string name
+        string email UK
+        string password_hash
+        datetime created_at
+    }
+
+    grupos {
+        int id PK
+        string name
+        text description
+        int created_by FK
+        datetime created_at
+    }
+
+    group_memberships {
+        int id PK
+        int group_id FK
+        int user_id FK
+        enum role "admin|member"
+        datetime joined_at
+    }
+
+    invites {
+        int id PK
+        int group_id FK
+        string token UK
+        enum role "admin|member"
+        int created_by FK
+        int max_uses "null = ilimitado"
+        int uses
+        datetime expires_at
+        bool active
+        datetime created_at
+    }
+
+    players {
+        int id PK
+        int group_id FK
+        string name
+        string position
+        float skill "0-10"
+        bool active
+        datetime created_at
+    }
+
+    events {
+        int id PK
+        int group_id FK
+        string title
+        date date
+        datetime created_at
+    }
+
+    teams {
+        int id PK
+        int event_id FK
+        string name
+        string color
+        datetime created_at
+    }
+
+    team_players {
+        int id PK
+        int team_id FK
+        int player_id FK
+    }
+
+    matches {
+        int id PK
+        int event_id FK
+        int team_a_id FK
+        int team_b_id FK
+        int score_a
+        int score_b
+        string status "scheduled|finished"
+        int sequence
+        datetime played_at
+        datetime created_at
+    }
+
+    match_stats {
+        int id PK
+        int match_id FK
+        int player_id FK
+        int team_id FK
+        int goals
+        int assists
+    }
