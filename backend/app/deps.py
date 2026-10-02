@@ -3,8 +3,10 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import Event, Group, GroupMembership, Role, User
+from .models import STAFF_ROLES, Event, Group, GroupMembership, Role, User
 from .security import decode_token
+
+STAFF_ONLY = "Apenas administradores ou moderadores do grupo podem realizar esta ação"
 
 # tokenUrl is informational (used by the OpenAPI docs "Authorize" button).
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=True)
@@ -70,6 +72,15 @@ def require_group_admin(
     return membership
 
 
+def require_group_staff(
+    membership: GroupMembership = Depends(require_membership),
+) -> GroupMembership:
+    """Admins and moderators (photos, positions and match stats)."""
+    if membership.role not in STAFF_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
+    return membership
+
+
 # ---------------------------------------------------------------------------
 # Event-scoped guards (used by routers with an `event_id` path parameter)
 # ---------------------------------------------------------------------------
@@ -105,4 +116,13 @@ def require_event_admin(
             status.HTTP_403_FORBIDDEN,
             "Apenas administradores do grupo podem realizar esta ação",
         )
+    return membership
+
+
+def require_event_staff(
+    membership: GroupMembership = Depends(require_event_membership),
+) -> GroupMembership:
+    """Admins and moderators may register match stats and run the matches."""
+    if membership.role not in STAFF_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
     return membership

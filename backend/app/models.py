@@ -10,10 +10,13 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
+from sqlalchemy.dialects.mysql import MEDIUMBLOB
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -23,7 +26,14 @@ class Role(str, enum.Enum):
     """Role scoped to a single group (RN02)."""
 
     admin = "admin"
+    # Member with extra write access: player photos/positions and match stats.
+    moderator = "moderator"
     member = "member"
+
+
+# Roles allowed to operate matches (register goals/assists, finish, next match)
+# and to change player photos and positions.
+STAFF_ROLES = (Role.admin, Role.moderator)
 
 
 class User(Base):
@@ -50,6 +60,9 @@ class Group(Base):
     description = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Allowed range for player notas in this group (e.g. 0-10 or 0-5).
+    min_skill = Column(Float, default=0.0, nullable=False, server_default=text("0"))
+    max_skill = Column(Float, default=10.0, nullable=False, server_default=text("10"))
 
     memberships = relationship(
         "GroupMembership", back_populates="group", cascade="all, delete-orphan"
@@ -109,11 +122,39 @@ class Player(Base):
     group_id = Column(Integer, ForeignKey("grupos.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(120), nullable=False)
     position = Column(String(50), nullable=True)
-    skill = Column(Float, default=5.0, nullable=False)  # nota de habilidade (0-10)
+    skill = Column(Float, default=5.0, nullable=False)  # nota (within the group range)
     active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Random, unguessable key of the current photo (changes on every upload),
+    # used as a capability URL so <img> tags can load it without a token.
+    photo_key = Column(String(64), unique=True, index=True, nullable=True)
 
     group = relationship("Group", back_populates="players")
+    photo = relationship(
+        "PlayerPhoto",
+        uselist=False,
+        back_populates="player",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def photo_url(self) -> str | None:
+        return f"/api/photos/{self.photo_key}" if self.photo_key else None
+
+
+class PlayerPhoto(Base):
+    """Optional player photo, stored in the database (normalized JPEG)."""
+
+    __tablename__ = "player_photos"
+
+    player_id = Column(
+        Integer, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    content_type = Column(String(50), nullable=False)
+    data = Column(LargeBinary().with_variant(MEDIUMBLOB(), "mysql"), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    player = relationship("Player", back_populates="photo")
 
 
 class Event(Base):
@@ -124,6 +165,14 @@ class Event(Base):
     title = Column(String(160), nullable=False)
     date = Column(Date, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Settings of the last draw (random | heuristic | optimal).
+    draw_mode = Column(String(20), nullable=True)
+    draw_proven = Column(Boolean, default=True, nullable=False, server_default=text("1"))
+    use_substitutes = Column(
+        Boolean, default=False, nullable=False, server_default=text("0")
+    )
+    # Consecutive wins after which a team leaves the field (0 = no limit).
+    wins_to_leave = Column(Integer, default=0, nullable=False, server_default=text("0"))
 
     group = relationship("Group", back_populates="events")
     teams = relationship("Team", back_populates="event", cascade="all, delete-orphan")
@@ -138,6 +187,9 @@ class Team(Base):
     name = Column(String(80), nullable=False)
     color = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Teams replaced by a new draw are archived (not deleted) when they already
+    # played, so the match history and the players' stats are preserved.
+    active = Column(Boolean, default=True, nullable=False, server_default=text("1"))
 
     event = relationship("Event", back_populates="teams")
     members = relationship(
@@ -157,6 +209,11 @@ class TeamPlayer(Base):
     player = relationship("Player")
 
 
+class MatchStatus(str, enum.Enum):
+    in_progress = "in_progress"
+    finished = "finished"
+
+
 class Match(Base):
     __tablename__ = "matches"
 
@@ -166,10 +223,13 @@ class Match(Base):
     team_b_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
     score_a = Column(Integer, default=0, nullable=False)
     score_b = Column(Integer, default=0, nullable=False)
-    status = Column(String(20), default="scheduled", nullable=False)  # scheduled|finished
+    status = Column(String(20), default=MatchStatus.in_progress.value, nullable=False)
     sequence = Column(Integer, default=0, nullable=False)  # order within the event
-    played_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    played_at = Column(DateTime, nullable=True)  # when the match was finished
+    created_at = Column(DateTime, default=datetime.utcnow)  # when it started
+    # Who stays on the field after the match: "a", "b", "none" (both leave) or
+    # "both" (only two teams in the event).
+    staying = Column(String(10), nullable=True)
 
     event = relationship("Event", back_populates="matches")
     team_a = relationship("Team", foreign_keys=[team_a_id])
@@ -180,12 +240,20 @@ class Match(Base):
 
 
 class MatchStat(Base):
-    """Individual per-match contribution: goals and assists (RF07)."""
+    """Individual per-match contribution: goals and assists (RF07).
+
+    One row per (match, player, team): ``team_id`` is the side the player was
+    playing for, so a player lent to another team for a match still counts for
+    the right side of the scoreboard.
+    """
 
     __tablename__ = "match_stats"
 
     id = Column(Integer, primary_key=True)
     match_id = Column(Integer, ForeignKey("matches.id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(
+        Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=True)
     goals = Column(Integer, default=0, nullable=False)

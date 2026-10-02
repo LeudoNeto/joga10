@@ -3,51 +3,42 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_event, require_event_admin, require_event_membership
-from ..models import Event, GroupMembership, Player, Team, TeamPlayer
-from ..schemas import DrawRequest, TeamOut, TeamPlayerOut
-from ..services.draw import build_teams
+from ..models import Event, GroupMembership, Match, Player, Team, TeamPlayer
+from ..schemas import TeamCreate, TeamOut, TeamsSave
+from ..services.event_state import (
+    MAX_TEAMS,
+    TEAM_STYLES,
+    active_teams,
+    current_match,
+    next_style,
+    retire_teams,
+    teams_out,
+)
 
 router = APIRouter(prefix="/events/{event_id}", tags=["teams"])
 
-# Distinct, colour-coded team identities (supports up to 12 teams).
-TEAM_STYLES = [
-    ("Time Vermelho", "#ef4444"),
-    ("Time Azul", "#3b82f6"),
-    ("Time Verde", "#22c55e"),
-    ("Time Amarelo", "#eab308"),
-    ("Time Roxo", "#8b5cf6"),
-    ("Time Laranja", "#f97316"),
-    ("Time Rosa", "#ec4899"),
-    ("Time Ciano", "#06b6d4"),
-    ("Time Cinza", "#6b7280"),
-    ("Time Lima", "#84cc16"),
-    ("Time Índigo", "#6366f1"),
-    ("Time Marrom", "#92400e"),
-]
+MATCH_IN_PROGRESS = (
+    "Finalize ou cancele a partida em andamento antes de refazer os times"
+)
 
 
-def team_to_out(team: Team) -> TeamOut:
-    players = [
-        TeamPlayerOut(
-            id=tp.player.id,
-            name=tp.player.name,
-            position=tp.player.position,
-            skill=tp.player.skill,
-        )
-        for tp in team.members
-        if tp.player is not None
-    ]
-    total = sum(p.skill for p in players)
-    avg = total / len(players) if players else 0.0
-    return TeamOut(
-        id=team.id,
-        event_id=team.event_id,
-        name=team.name,
-        color=team.color,
-        players=players,
-        total_skill=round(total, 2),
-        avg_skill=round(avg, 2),
-    )
+def _ensure_no_match(db: Session, event: Event) -> None:
+    if current_match(db, event.id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, MATCH_IN_PROGRESS)
+
+
+def _get_team(db: Session, event: Event, team_id: int) -> Team:
+    team = db.get(Team, team_id)
+    if team is None or team.event_id != event.id or not team.active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Time não encontrado")
+    return team
+
+
+def _get_player(db: Session, event: Event, player_id: int) -> Player:
+    player = db.get(Player, player_id)
+    if player is None or player.group_id != event.group_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Jogador não encontrado")
+    return player
 
 
 @router.get("/teams", response_model=list[TeamOut])
@@ -56,62 +47,45 @@ def list_teams(
     event: Event = Depends(get_event),
     db: Session = Depends(get_db),
 ):
-    teams = (
-        db.query(Team).filter_by(event_id=event.id).order_by(Team.id.asc()).all()
-    )
-    return [team_to_out(t) for t in teams]
+    return teams_out(db, event.id)
 
 
-@router.post("/draw", response_model=list[TeamOut])
-def draw_teams(
-    payload: DrawRequest,
+@router.put("/teams", response_model=list[TeamOut])
+def save_teams(
+    payload: TeamsSave,
     _m: GroupMembership = Depends(require_event_admin),
     event: Event = Depends(get_event),
     db: Session = Depends(get_db),
 ):
-    """RF06 / RN04: form teams for the event, either fully random or balanced
-    by player skill. Re-drawing replaces the current teams for the event."""
-    if payload.player_ids:
-        players = (
-            db.query(Player)
-            .filter(
-                Player.id.in_(payload.player_ids),
-                Player.group_id == event.group_id,
-            )
-            .all()
+    """RF06 / RN04: store the teams drawn on the client (random, heuristic or
+    optimal balance), replacing the current ones. Teams that already played
+    are archived so the match history and stats are kept."""
+    _ensure_no_match(db, event)
+    ids = [pid for team in payload.teams for pid in team]
+    if any(not team for team in payload.teams):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Todos os times precisam de jogadores")
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Jogador repetido em mais de um time")
+    found = {
+        p.id
+        for p in db.query(Player.id).filter(
+            Player.id.in_(ids), Player.group_id == event.group_id
         )
-    else:
-        players = (
-            db.query(Player)
-            .filter_by(group_id=event.group_id, active=True)
-            .all()
-        )
+    }
+    if found != set(ids):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Jogador não pertence ao grupo")
 
-    if len(players) < payload.num_teams:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Número de jogadores insuficiente para formar os times",
-        )
-
-    # Clear previous teams (DB-level cascades remove their members).
-    db.query(Team).filter_by(event_id=event.id).delete(synchronize_session=False)
-    db.flush()
-
-    buckets = build_teams(players, payload.num_teams, payload.mode)
-    for index, bucket in enumerate(buckets):
+    retire_teams(db, event.id)
+    for index, members in enumerate(payload.teams):
         name, color = TEAM_STYLES[index % len(TEAM_STYLES)]
         team = Team(event_id=event.id, name=name, color=color)
+        team.members = [TeamPlayer(player_id=pid) for pid in members]
         db.add(team)
-        db.flush()
-        for player in bucket:
-            db.add(TeamPlayer(team_id=team.id, player_id=player.id))
-
+    event.draw_mode = payload.mode
+    event.draw_proven = payload.proven
+    event.use_substitutes = payload.use_substitutes and payload.mode != "random"
     db.commit()
-
-    teams = (
-        db.query(Team).filter_by(event_id=event.id).order_by(Team.id.asc()).all()
-    )
-    return [team_to_out(t) for t in teams]
+    return teams_out(db, event.id)
 
 
 @router.delete("/teams", status_code=status.HTTP_204_NO_CONTENT)
@@ -120,5 +94,88 @@ def clear_teams(
     event: Event = Depends(get_event),
     db: Session = Depends(get_db),
 ):
-    db.query(Team).filter_by(event_id=event.id).delete(synchronize_session=False)
+    _ensure_no_match(db, event)
+    retire_teams(db, event.id)
+    event.draw_mode = None
     db.commit()
+
+
+@router.post("/teams", response_model=list[TeamOut], status_code=status.HTTP_201_CREATED)
+def add_team(
+    payload: TeamCreate,
+    _m: GroupMembership = Depends(require_event_admin),
+    event: Event = Depends(get_event),
+    db: Session = Depends(get_db),
+):
+    """Add an empty team during the event (e.g. more players arrived)."""
+    if len(active_teams(db, event.id)) >= MAX_TEAMS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Máximo de {MAX_TEAMS} times")
+    name, color = next_style(db, event.id)
+    db.add(Team(event_id=event.id, name=payload.name or name, color=color))
+    db.commit()
+    return teams_out(db, event.id)
+
+
+@router.delete("/teams/{team_id}", response_model=list[TeamOut])
+def remove_team(
+    team_id: int,
+    _m: GroupMembership = Depends(require_event_admin),
+    event: Event = Depends(get_event),
+    db: Session = Depends(get_db),
+):
+    team = _get_team(db, event, team_id)
+    match = current_match(db, event.id)
+    if match is not None and team.id in (match.team_a_id, match.team_b_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Este time está jogando a partida atual"
+        )
+    played = (
+        db.query(Match)
+        .filter(Match.event_id == event.id)
+        .filter((Match.team_a_id == team.id) | (Match.team_b_id == team.id))
+        .first()
+    )
+    if played is not None:
+        team.active = False  # keep it for the history
+    else:
+        db.delete(team)
+    db.commit()
+    return teams_out(db, event.id)
+
+
+@router.put("/teams/{team_id}/players/{player_id}", response_model=list[TeamOut])
+def put_player_in_team(
+    team_id: int,
+    player_id: int,
+    _m: GroupMembership = Depends(require_event_admin),
+    event: Event = Depends(get_event),
+    db: Session = Depends(get_db),
+):
+    """Add a player to a team, moving them out of any other active team.
+    Stats already recorded stay with the team the player played for."""
+    team = _get_team(db, event, team_id)
+    player = _get_player(db, event, player_id)
+    for other in active_teams(db, event.id):
+        for member in list(other.members):
+            if member.player_id == player.id and other.id != team.id:
+                other.members.remove(member)
+    if not any(m.player_id == player.id for m in team.members):
+        team.members.append(TeamPlayer(player_id=player.id))
+    db.commit()
+    return teams_out(db, event.id)
+
+
+@router.delete("/teams/{team_id}/players/{player_id}", response_model=list[TeamOut])
+def remove_player_from_team(
+    team_id: int,
+    player_id: int,
+    _m: GroupMembership = Depends(require_event_admin),
+    event: Event = Depends(get_event),
+    db: Session = Depends(get_db),
+):
+    team = _get_team(db, event, team_id)
+    for member in list(team.members):
+        if member.player_id == player_id:
+            team.members.remove(member)
+    db.commit()
+    return teams_out(db, event.id)

@@ -8,12 +8,16 @@ from sqlalchemy.exc import OperationalError
 
 from .config import settings
 from .database import Base, engine
+from .migrations import run_migrations
 from .routers import (
     auth,
     events,
     groups,
     invites,
+    matches,
+    photos,
     players,
+    stats,
     teams,
 )
 
@@ -33,6 +37,8 @@ def init_db(retries: int = 15, delay: float = 3.0) -> None:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             Base.metadata.create_all(bind=engine)
+            # create_all never alters existing tables: upgrade older schemas.
+            run_migrations(engine)
             logger.info("Database ready; schema ensured.")
             return
         except OperationalError as exc:  # pragma: no cover - startup timing
@@ -79,3 +85,6 @@ app.include_router(players.router, prefix=api_prefix)
 app.include_router(events.group_router, prefix=api_prefix)
 app.include_router(events.event_router, prefix=api_prefix)
 app.include_router(teams.router, prefix=api_prefix)
+app.include_router(matches.router, prefix=api_prefix)
+app.include_router(stats.router, prefix=api_prefix)
+app.include_router(photos.router, prefix=api_prefix)

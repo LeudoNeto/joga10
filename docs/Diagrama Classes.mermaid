@@ -5,9 +5,11 @@ erDiagram
     users ||--o{ invites : "cria (created_by)"
     grupos ||--o{ invites : "possui"
     grupos ||--o{ players : "possui"
+    players ||--o| player_photos : "foto (opcional)"
     grupos ||--o{ events : "possui"
     events ||--o{ teams : "possui"
     events ||--o{ matches : "possui"
+    events ||--o{ match_stats : "por evento"
     teams ||--o{ team_players : "contém"
     players ||--o{ team_players : "participa"
     teams ||--o{ matches : "team_a"
@@ -30,13 +32,15 @@ erDiagram
         text description
         int created_by FK
         datetime created_at
+        float min_skill "nota mínima (padrão 0)"
+        float max_skill "nota máxima (padrão 10)"
     }
 
     group_memberships {
         int id PK
         int group_id FK
         int user_id FK
-        enum role "admin|member"
+        enum role "admin|moderator|member"
         datetime joined_at
     }
 
@@ -44,7 +48,7 @@ erDiagram
         int id PK
         int group_id FK
         string token UK
-        enum role "admin|member"
+        enum role "admin|moderator|member"
         int created_by FK
         int max_uses "null = ilimitado"
         int uses
@@ -58,9 +62,17 @@ erDiagram
         int group_id FK
         string name
         string position
-        float skill "0-10"
+        float skill "dentro da faixa do grupo"
         bool active
+        string photo_key UK "URL da foto (aleatória)"
         datetime created_at
+    }
+
+    player_photos {
+        int player_id PK, FK
+        string content_type
+        blob data "JPEG quadrado 512px"
+        datetime updated_at
     }
 
     events {
@@ -68,6 +80,10 @@ erDiagram
         int group_id FK
         string title
         date date
+        string draw_mode "random|heuristic|optimal"
+        bool draw_proven
+        bool use_substitutes
+        int wins_to_leave "0 = sem limite"
         datetime created_at
     }
 
@@ -76,6 +92,7 @@ erDiagram
         int event_id FK
         string name
         string color
+        bool active "false = arquivado (já jogou)"
         datetime created_at
     }
 
@@ -92,15 +109,17 @@ erDiagram
         int team_b_id FK
         int score_a
         int score_b
-        string status "scheduled|finished"
+        string status "in_progress|finished"
         int sequence
-        datetime played_at
-        datetime created_at
+        string staying "a|b|none|both"
+        datetime played_at "fim da partida"
+        datetime created_at "início"
     }
 
     match_stats {
         int id PK
         int match_id FK
+        int event_id FK
         int player_id FK
         int team_id FK
         int goals

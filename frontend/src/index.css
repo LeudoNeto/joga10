@@ -2,16 +2,73 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+@layer base {
+  /* Light theme */
+  :root {
+    --canvas: 246 246 247;
+    --surface: 255 255 255;
+    --surface-2: 244 244 245;
+    --surface-3: 228 228 231;
+    --line: 228 228 231;
+    --line-strong: 212 212 216;
+    --fg: 24 24 27;
+    --muted: 82 82 91;
+    --subtle: 113 113 122;
+    --accent: 220 38 38;
+    --shadow-card: 0 1px 2px rgb(24 24 27 / 0.04), 0 1px 3px rgb(24 24 27 / 0.06);
+    --shadow-pop: 0 12px 40px -8px rgb(24 24 27 / 0.25);
+    --glow: rgb(220 38 38 / 0.07);
+    color-scheme: light;
+  }
+
+  /* Dark theme (default) */
+  .dark {
+    --canvas: 9 9 11;
+    --surface: 19 19 22;
+    --surface-2: 28 28 32;
+    --surface-3: 39 39 44;
+    --line: 36 36 41;
+    --line-strong: 52 52 58;
+    --fg: 244 244 245;
+    --muted: 161 161 170;
+    --subtle: 113 113 122;
+    --accent: 248 113 113;
+    --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset;
+    --shadow-pop: 0 16px 50px -10px rgb(0 0 0 / 0.7);
+    --glow: rgb(220 38 38 / 0.13);
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-fg antialiased;
+    background-image: radial-gradient(
+      1100px 420px at 50% -160px,
+      var(--glow),
+      transparent 70%
+    );
+    background-repeat: no-repeat;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  ::selection {
+    @apply bg-brand-600/30;
+  }
+
+  /* Thin, theme-aware scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line-strong)) transparent;
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
-
-body {
-  @apply bg-slate-100 text-slate-800 antialiased;
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
 }

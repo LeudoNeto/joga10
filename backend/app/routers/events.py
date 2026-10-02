@@ -66,6 +66,8 @@ def update_event(
         event.title = payload.title
     if payload.date is not None:
         event.date = payload.date
+    if payload.wins_to_leave is not None:
+        event.wins_to_leave = payload.wins_to_leave
     db.commit()
     db.refresh(event)
     return event

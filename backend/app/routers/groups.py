@@ -10,6 +10,7 @@ from ..schemas import (
     GroupSummary,
     GroupUpdate,
     MemberOut,
+    MemberRoleUpdate,
 )
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -30,6 +31,9 @@ def _summary(db: Session, group: Group, role: Role) -> GroupSummary:
         player_count=player_count,
         event_count=event_count,
         created_at=group.created_at,
+        created_by=group.created_by,
+        min_skill=group.min_skill,
+        max_skill=group.max_skill,
     )
 
 
@@ -84,6 +88,7 @@ def _detail(db: Session, group: Group, role: Role) -> GroupDetail:
             email=m.user.email,
             role=m.role,
             joined_at=m.joined_at,
+            is_creator=m.user_id == group.created_by,
         )
         for m in members
     ]
@@ -109,8 +114,56 @@ def update_group(
         group.name = payload.name
     if payload.description is not None:
         group.description = payload.description
+
+    new_min = payload.min_skill if payload.min_skill is not None else group.min_skill
+    new_max = payload.max_skill if payload.max_skill is not None else group.max_skill
+    if new_min >= new_max:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "A nota mínima deve ser menor que a nota máxima",
+        )
+    if (new_min, new_max) != (group.min_skill, group.max_skill):
+        group.min_skill, group.max_skill = new_min, new_max
+        # Keep every player inside the new range (clamped to the nearest limit).
+        players = db.query(Player).filter(Player.group_id == group.id)
+        players.filter(Player.skill < new_min).update(
+            {Player.skill: new_min}, synchronize_session=False
+        )
+        players.filter(Player.skill > new_max).update(
+            {Player.skill: new_max}, synchronize_session=False
+        )
     db.commit()
     db.refresh(group)
+    return _detail(db, group, membership.role)
+
+
+@router.patch("/{group_id}/members/{user_id}", response_model=GroupDetail)
+def update_member_role(
+    user_id: int,
+    payload: MemberRoleUpdate,
+    membership: GroupMembership = Depends(require_group_admin),
+    db: Session = Depends(get_db),
+):
+    """Promote/demote a member (admin, moderator or member)."""
+    group = membership.group
+    target = (
+        db.query(GroupMembership)
+        .filter_by(group_id=group.id, user_id=user_id)
+        .first()
+    )
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membro não encontrado")
+    if user_id == group.created_by:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "O papel do criador do grupo não pode ser alterado",
+        )
+    if user_id == membership.user_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Você não pode alterar o seu próprio papel"
+        )
+    target.role = payload.role
+    db.commit()
     return _detail(db, group, membership.role)
 
 

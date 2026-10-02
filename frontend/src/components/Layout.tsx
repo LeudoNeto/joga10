@@ -1,20 +1,35 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
-import { Button } from "./ui";
+import { LogOut, Moon, Sun } from "lucide-react";
 import type { ReactNode } from "react";
+import { useAuth } from "../auth/AuthContext";
+import { useTheme } from "../theme/ThemeContext";
+import { Avatar, IconButton } from "./ui";
 
 export function Brand() {
   return (
-    <Link to="/" className="flex items-center gap-2">
+    <Link to="/" className="group flex items-center gap-2.5">
       <img
         src="/logojoga10.png"
-        alt="Joga10"
-        className="h-9 w-9 rounded-full object-contain"
+        alt=""
+        className="h-9 w-9 rounded-full object-contain transition-transform group-hover:scale-105"
       />
-      <span className="text-lg font-black tracking-tight text-slate-800">
-        Joga<span className="text-red-600">10</span>
+      <span className="text-lg font-black tracking-tight text-fg">
+        Joga<span className="text-brand-500">10</span>
       </span>
     </Link>
+  );
+}
+
+export function ThemeToggle({ className }: { className?: string }) {
+  const { theme, toggle } = useTheme();
+  return (
+    <IconButton
+      icon={theme === "dark" ? Sun : Moon}
+      label={theme === "dark" ? "Usar tema claro" : "Usar tema escuro"}
+      onClick={toggle}
+      variant="ghost"
+      className={className}
+    />
   );
 }
 
@@ -24,28 +39,31 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+      <header className="sticky top-0 z-40 border-b border-line bg-canvas/75 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
           <Brand />
-          {user && (
-            <div className="flex items-center gap-3">
-              <span className="hidden text-sm text-slate-500 sm:inline">
-                {user.name}
-              </span>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  logout();
-                  navigate("/login");
-                }}
-              >
-                Sair
-              </Button>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5">
+            <ThemeToggle />
+            {user && (
+              <>
+                <div className="ml-1 hidden items-center gap-2.5 rounded-xl border border-line bg-surface-2/50 py-1 pl-1 pr-3 sm:flex">
+                  <Avatar name={user.name} size={28} />
+                  <span className="max-w-[160px] truncate text-sm font-medium text-fg">{user.name}</span>
+                </div>
+                <IconButton
+                  icon={LogOut}
+                  label="Sair"
+                  onClick={() => {
+                    logout();
+                    navigate("/login");
+                  }}
+                />
+              </>
+            )}
+          </div>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 pb-16 pt-6">{children}</main>
     </div>
   );
 }

@@ -1,156 +1,180 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError } from "../../api/client";
-import type { Player } from "../../types";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FileUp, Pencil, Plus, Search, Shirt, Trash2, UserPlus } from "lucide-react";
+import { api } from "../../api/client";
+import type { GroupDetail, Player } from "../../types";
+import { useConfirm, useToast } from "../../components/Feedback";
+import { PhotoPicker, PositionInput, savePhoto, type PhotoChange } from "../../components/PlayerFields";
 import {
   Alert,
+  Avatar,
+  Badge,
   Button,
   Card,
+  Checkbox,
   EmptyState,
   Field,
+  IconButton,
   Input,
   Modal,
   Spinner,
 } from "../../components/ui";
-import { ImportPlayersModal } from "./ImportPlayersModal";
+import { errorMessage, fmtSkill } from "../../lib/format";
+import { ImportPlayersModal, importSummary } from "./ImportPlayersModal";
 
-function SkillBar({ value }: { value: number }) {
-  const pct = Math.max(0, Math.min(100, (value / 10) * 100));
+export function SkillBar({ value, min, max }: { value: number; min: number; max: number }) {
+  const pct = max > min ? Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100)) : 0;
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200">
-        <div
-          className="h-full rounded-full bg-pitch-500"
-          style={{ width: `${pct}%` }}
-        />
+    <div className="flex items-center gap-2.5">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-3 sm:w-28">
+        <div className="h-full rounded-full bg-gradient-to-r from-brand-700 to-brand-500" style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-8 text-right text-sm font-medium text-slate-600">
-        {value.toFixed(1)}
-      </span>
+      <span className="w-10 text-right text-sm font-semibold tabular text-fg">{fmtSkill(value)}</span>
     </div>
   );
 }
 
-export function PlayersTab({
-  groupId,
-  isAdmin,
-}: {
-  groupId: number;
-  isAdmin: boolean;
-}) {
+export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: () => void }) {
+  const isAdmin = group.role === "admin";
+  const confirm = useConfirm();
+  const toast = useToast();
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Player | null>(null);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [flash, setFlash] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   async function load() {
     try {
-      setPlayers(await api.get<Player[]>(`/groups/${groupId}/players`));
+      setPlayers(await api.get<Player[]>(`/groups/${group.id}/players`));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha ao carregar jogadores");
+      setError(errorMessage(err, "Falha ao carregar jogadores"));
     }
   }
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId]);
+  }, [group.id, group.min_skill, group.max_skill]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (players ?? []).filter(
+      (p) => !q || p.name.toLowerCase().includes(q) || (p.position ?? "").toLowerCase().includes(q)
+    );
+  }, [players, query]);
 
   async function remove(p: Player) {
-    if (!confirm(`Remover ${p.name}?`)) return;
-    await api.del(`/groups/${groupId}/players/${p.id}`);
-    load();
+    const ok = await confirm({
+      title: `Remover ${p.name}?`,
+      message: "As estatísticas do jogador nas partidas também serão apagadas. Para mantê-las, desative o jogador.",
+      confirmLabel: "Remover",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.del(`/groups/${group.id}/players/${p.id}`);
+      toast(`${p.name} removido`);
+      load();
+      onChange();
+    } catch (err) {
+      toast(errorMessage(err, "Falha ao remover"), { tone: "error" });
+    }
   }
 
-  if (players === null) return <Spinner label="Carregando jogadores..." />;
+  if (players === null) return error ? <Alert>{error}</Alert> : <Spinner label="Carregando jogadores..." />;
 
   return (
     <div className="space-y-4">
       {error && <Alert>{error}</Alert>}
-      {flash && <Alert tone="success">{flash}</Alert>}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-slate-500">
-          {players.length} jogador(es) cadastrados
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="relative w-full max-w-xs">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar jogador ou posição" className="pl-9" />
+        </div>
         {isAdmin && (
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setImporting(true)}>
+            <Button variant="secondary" icon={FileUp} onClick={() => setImporting(true)}>
               Importar
             </Button>
-            <Button onClick={() => setCreating(true)}>+ Jogador</Button>
+            <Button icon={Plus} onClick={() => setCreating(true)}>
+              Jogador
+            </Button>
           </div>
         )}
       </div>
 
       {players.length === 0 ? (
         <EmptyState
+          icon={Shirt}
           title="Nenhum jogador cadastrado"
           description={
             isAdmin
               ? "Cadastre jogadores para poder sortear os times."
               : "Os administradores ainda não cadastraram jogadores."
           }
+          action={
+            isAdmin && (
+              <Button icon={UserPlus} onClick={() => setCreating(true)}>
+                Cadastrar jogador
+              </Button>
+            )
+          }
         />
       ) : (
-        <Card className="divide-y divide-slate-100">
-          {players.map((p) => (
-            <div
-              key={p.id}
-              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-            >
-              <div className="min-w-[140px]">
-                <p className="font-medium text-slate-800">
-                  {p.name}
-                  {!p.active && (
-                    <span className="ml-2 text-xs text-slate-400">(inativo)</span>
-                  )}
+        <Card className="divide-y divide-line overflow-hidden">
+          {filtered.map((p) => (
+            <div key={p.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2/40">
+              <Avatar name={p.name} src={p.photo_url} size={40} className={p.active ? "" : "opacity-50 grayscale"} />
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 truncate font-medium text-fg">
+                  <span className="truncate">{p.name}</span>
+                  {!p.active && <Badge>inativo</Badge>}
                 </p>
-                <p className="text-xs text-slate-500">
-                  {p.position || "Sem posição"}
-                </p>
+                <p className="truncate text-xs text-subtle">{p.position || "Sem posição"}</p>
               </div>
-              <SkillBar value={p.skill} />
+              <SkillBar value={p.skill} min={group.min_skill} max={group.max_skill} />
               {isAdmin && (
-                <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => setEditing(p)}>
-                    Editar
-                  </Button>
-                  <Button variant="ghost" onClick={() => remove(p)}>
-                    🗑️
-                  </Button>
+                <div className="flex shrink-0 gap-0.5">
+                  <IconButton icon={Pencil} label="Editar" size="sm" onClick={() => setEditing(p)} />
+                  <IconButton icon={Trash2} label="Remover" size="sm" onClick={() => remove(p)} />
                 </div>
               )}
             </div>
           ))}
+          {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted">Nenhum jogador encontrado.</p>}
         </Card>
       )}
+      <p className="text-xs text-subtle">
+        {players.length} jogador(es) · {players.filter((p) => p.active).length} ativos
+      </p>
 
       {isAdmin && (
         <>
           <PlayerModal
             open={creating || editing !== null}
             player={editing}
-            groupId={groupId}
+            group={group}
             onClose={() => {
               setCreating(false);
               setEditing(null);
             }}
-            onSaved={() => {
+            onSaved={(created) => {
               setCreating(false);
               setEditing(null);
               load();
+              if (created) onChange();
             }}
           />
           <ImportPlayersModal
             open={importing}
-            groupId={groupId}
+            group={group}
             onClose={() => setImporting(false)}
-            onImported={(count) => {
+            onImported={(result) => {
               setImporting(false);
-              setFlash(`${count} jogador(es) importado(s) com sucesso.`);
-              setTimeout(() => setFlash(null), 4000);
+              toast(`Importação concluída: ${importSummary(result)}`);
               load();
+              onChange();
             }}
           />
         </>
@@ -159,99 +183,117 @@ export function PlayersTab({
   );
 }
 
-function PlayerModal({
+export function PlayerModal({
   open,
   player,
-  groupId,
+  group,
   onClose,
   onSaved,
 }: {
   open: boolean;
   player: Player | null;
-  groupId: number;
+  group: GroupDetail;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (created: boolean) => void;
 }) {
+  const mid = Math.round(((group.min_skill + group.max_skill) / 2) * 100) / 100;
   const [name, setName] = useState("");
   const [position, setPosition] = useState("");
-  const [skill, setSkill] = useState(5);
+  const [skill, setSkill] = useState(String(mid));
   const [active, setActive] = useState(true);
+  const [photo, setPhoto] = useState<PhotoChange>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (!open) return;
     setName(player?.name ?? "");
     setPosition(player?.position ?? "");
-    setSkill(player?.skill ?? 5);
+    setSkill(String(player?.skill ?? mid));
     setActive(player?.active ?? true);
+    setPhoto(null);
     setError(null);
-  }, [player, open]);
+  }, [player, open, mid]);
+
+  const value = Number(skill.replace(",", "."));
+  const step = group.max_skill - group.min_skill <= 10 ? 0.01 : 0.1;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!Number.isFinite(value) || value < group.min_skill || value > group.max_skill) {
+      setError(`A nota deve estar entre ${fmtSkill(group.min_skill)} e ${fmtSkill(group.max_skill)}.`);
+      return;
+    }
     setBusy(true);
     setError(null);
-    const body = { name, position: position || null, skill, active };
+    const body = { name, position: position.trim() || null, skill: value, active };
     try {
-      if (player) await api.put(`/groups/${groupId}/players/${player.id}`, body);
-      else await api.post(`/groups/${groupId}/players`, body);
-      onSaved();
+      const saved = player
+        ? await api.put<Player>(`/groups/${group.id}/players/${player.id}`, body)
+        : await api.post<Player>(`/groups/${group.id}/players`, body);
+      await savePhoto(group.id, saved.id, photo);
+      onSaved(!player);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha ao salvar jogador");
+      setError(errorMessage(err, "Falha ao salvar jogador"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={player ? "Editar jogador" : "Novo jogador"}
-    >
+    <Modal open={open} onClose={onClose} title={player ? "Editar jogador" : "Novo jogador"} icon={player ? Pencil : UserPlus}>
       <form onSubmit={submit} className="space-y-4">
         {error && <Alert>{error}</Alert>}
+        <PhotoPicker
+          name={name}
+          currentUrl={player?.photo_url ?? null}
+          value={photo}
+          onChange={setPhoto}
+          onError={setError}
+        />
         <Field label="Nome">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            autoFocus
-          />
+          <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus maxLength={120} />
         </Field>
         <Field label="Posição (opcional)">
-          <Input
-            value={position}
-            onChange={(e) => setPosition(e.target.value)}
-            placeholder="Ex: Atacante, Goleiro..."
-          />
+          <PositionInput value={position} onChange={setPosition} />
         </Field>
-        <Field label={`Nota de habilidade: ${skill.toFixed(1)}`}>
-          <input
-            type="range"
-            min={0}
-            max={10}
-            step={0.5}
-            value={skill}
-            onChange={(e) => setSkill(Number(e.target.value))}
-            className="w-full accent-pitch-600"
-          />
+        <Field
+          label="Nota de habilidade"
+          hint={`Faixa do grupo: ${fmtSkill(group.min_skill)} a ${fmtSkill(group.max_skill)}`}
+        >
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={group.min_skill}
+              max={group.max_skill}
+              step={step}
+              value={Number.isFinite(value) ? value : mid}
+              onChange={(e) => setSkill(e.target.value)}
+              className="w-full accent-brand-600"
+            />
+            <Input
+              type="number"
+              min={group.min_skill}
+              max={group.max_skill}
+              step={step}
+              value={skill}
+              onChange={(e) => setSkill(e.target.value)}
+              className="w-24 text-right tabular"
+            />
+          </div>
         </Field>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={active}
-            onChange={(e) => setActive(e.target.checked)}
-            className="h-4 w-4 accent-pitch-600"
-          />
-          Jogador ativo (entra nos sorteios)
-        </label>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
+        <Checkbox
+          checked={active}
+          onChange={(e) => setActive(e.target.checked)}
+          label="Jogador ativo"
+          description="Jogadores ativos já vêm selecionados no sorteio."
+        />
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button type="submit" disabled={busy}>
-            {busy ? "Salvando..." : "Salvar"}
+          <Button type="submit" loading={busy}>
+            Salvar
           </Button>
         </div>
       </form>

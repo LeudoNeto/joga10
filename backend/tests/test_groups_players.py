@@ -1,0 +1,149 @@
+import io
+
+from PIL import Image
+
+
+def _png(w=800, h=600, color=(200, 30, 30)):
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_skill_range_limits_and_clamps_players(api):
+    admin = api.user("Admin")
+    g, players, _ = api.group_with_players(admin, [2, 8, 9.5])
+    assert (g["min_skill"], g["max_skill"]) == (0, 10)
+
+    # out of the default 0-10 range
+    api.req("POST", f"/groups/{g['id']}/players", admin, 400, json={"name": "X", "skill": 11})
+
+    # narrowing the range clamps the players outside it
+    detail = api.req("PATCH", f"/groups/{g['id']}", admin, 200, json={"min_skill": 3, "max_skill": 5}).json()
+    assert (detail["min_skill"], detail["max_skill"]) == (3, 5)
+    skills = sorted(p["skill"] for p in api.req("GET", f"/groups/{g['id']}/players", admin, 200).json())
+    assert skills == [3, 5, 5]
+
+    # new player without nota gets the middle of the range
+    p = api.req("POST", f"/groups/{g['id']}/players", admin, 201, json={"name": "Novo"}).json()
+    assert p["skill"] == 4
+
+    api.req("PATCH", f"/groups/{g['id']}", admin, 400, json={"min_skill": 6})  # min >= max
+
+
+def test_import_preview_uses_group_range(api):
+    admin = api.user()
+    g, _, _ = api.group_with_players(admin, [], min_skill=0, max_skill=5)
+    res = api.req(
+        "POST", f"/groups/{g['id']}/players/import", admin, 200,
+        data={"text": "Neto - 4.80\nZico - 9\nSem nota"},
+    ).json()
+    assert [r["skill"] for r in res["rows"]] == [4.8, 5, 2.5]
+
+
+def test_moderator_permissions(api):
+    admin = api.user()
+    g, players, _ = api.group_with_players(admin, [5])
+    mod = api.join(g["id"], admin, "moderator")
+    member = api.join(g["id"], admin, "member")
+    pid = players[0]["id"]
+
+    detail = api.req("GET", f"/groups/{g['id']}", mod, 200).json()
+    assert detail["role"] == "moderator"
+
+    # moderator: position yes, anything else no
+    api.req("PUT", f"/groups/{g['id']}/players/{pid}", mod, 200, json={"position": "Goleiro"})
+    api.req("PUT", f"/groups/{g['id']}/players/{pid}", mod, 403, json={"skill": 9})
+    api.req("POST", f"/groups/{g['id']}/players", mod, 403, json={"name": "X"})
+    # member: read only
+    api.req("PUT", f"/groups/{g['id']}/players/{pid}", member, 403, json={"position": "Meia"})
+
+
+def test_member_role_change(api):
+    admin = api.user()
+    g, _, _ = api.group_with_players(admin, [])
+    member = api.join(g["id"], admin, "member")
+    detail = api.req("GET", f"/groups/{g['id']}", admin, 200).json()
+    target = next(m for m in detail["members"] if not m["is_creator"])
+    creator = next(m for m in detail["members"] if m["is_creator"])
+
+    detail = api.req(
+        "PATCH", f"/groups/{g['id']}/members/{target['user_id']}", admin, 200,
+        json={"role": "moderator"},
+    ).json()
+    assert next(m for m in detail["members"] if m["user_id"] == target["user_id"])["role"] == "moderator"
+    api.req("PATCH", f"/groups/{g['id']}/members/{creator['user_id']}", admin, 400, json={"role": "member"})
+    api.req("PATCH", f"/groups/{g['id']}/members/{creator['user_id']}", member, 403, json={"role": "member"})
+
+
+def test_photo_upload_serve_and_delete(api, client):
+    admin = api.user()
+    g, players, _ = api.group_with_players(admin, [5])
+    mod = api.join(g["id"], admin, "moderator")
+    pid = players[0]["id"]
+    url = f"/groups/{g['id']}/players/{pid}/photo"
+
+    api.req("POST", url, mod, 400, files={"file": ("x.png", b"not an image", "image/png")})
+    player = api.req("POST", url, mod, 200, files={"file": ("x.png", _png(), "image/png")}).json()
+    assert player["photo_url"].startswith("/api/photos/")
+
+    res = client.get(player["photo_url"])  # public capability URL
+    assert res.status_code == 200 and res.headers["content-type"] == "image/jpeg"
+    assert Image.open(io.BytesIO(res.content)).size == (512, 512)  # square, resized
+
+    player = api.req("DELETE", url, mod, 200).json()
+    assert player["photo_url"] is None
+    assert client.get(res.url.path).status_code == 404
+
+
+def test_match_names(api):
+    admin = api.user()
+    g, _, _ = api.group_with_players(admin, [])
+    for name in ["Neto", "Pedro Vital", "Gabriel Ribeiro", "Gabriel conv", "Afonso (Dylan)", "João Victor"]:
+        api.req("POST", f"/groups/{g['id']}/players", admin, 201, json={"name": name})
+    text = "Lista quinta\n1. neto ✅\n2- Pedro Vital\n3) Gabriel\n4 - Dylan\njoao victor - 3.87\nNeto\nFulano"
+    res = api.req("POST", f"/groups/{g['id']}/players/match-names", admin, 200, data={"text": text}).json()
+    status = {r["input"]: r["status"] for r in res["rows"]}
+    assert status == {
+        "Lista quinta": "not_found",
+        "neto": "matched",
+        "Pedro Vital": "matched",
+        "Gabriel": "ambiguous",
+        "Dylan": "similar",
+        "joao victor": "matched",
+        "Neto": "duplicate",
+        "Fulano": "not_found",
+    }
+    assert res["matched"] == 4 and res["pending"] == 3
+
+
+def test_import_matches_by_name_update_create_ignore(api):
+    admin = api.user()
+    g, _, _ = api.group_with_players(admin, [])
+    for name, skill in [("Neto", 4.8), ("Igor", 3), ("Cauã", 4)]:
+        api.req("POST", f"/groups/{g['id']}/players", admin, 201, json={"name": name, "skill": skill})
+
+    text = "Neto - 4.80\nNovo - 2\nigor - 3,5\nNovo - 3\ncaua\n - 7"
+    res = api.req("POST", f"/groups/{g['id']}/players/import", admin, 200, data={"text": text}).json()
+    # updates first, then creates, then ignored rows (input order inside each)
+    assert [(r["name"], r["action"]) for r in res["rows"]] == [
+        ("igor", "update"),
+        ("Novo", "create"),
+        ("Neto", "ignore"),  # same name, same nota
+        ("Novo", "ignore"),  # repeated in the list
+        ("caua", "ignore"),  # exists, but the line has no nota
+        ("", "ignore"),  # no name
+    ]
+    assert res["rows"][0]["current_skill"] == 3
+    assert (res["to_update"], res["to_create"], res["ignored"]) == (1, 1, 4)
+
+    rows = [{"name": r["name"], "skill": r["skill"]} for r in res["rows"] if r["action"] != "ignore"]
+    done = api.req("POST", f"/groups/{g['id']}/players/bulk", admin, 201, json={"players": rows}).json()
+    assert (done["created"], done["updated"]) == (1, 1)
+    skills = {p["name"]: p["skill"] for p in api.req("GET", f"/groups/{g['id']}/players", admin, 200).json()}
+    assert skills == {"Neto": 4.8, "Igor": 3.5, "Cauã": 4, "Novo": 2}  # name kept, nota updated
+
+    again = api.req("POST", f"/groups/{g['id']}/players/bulk", admin, 201, json={"players": rows}).json()
+    assert (again["created"], again["updated"], again["ignored"]) == (0, 0, 2)
+    # an item without nota never overwrites an existing one
+    api.req("POST", f"/groups/{g['id']}/players/bulk", admin, 201, json={"players": [{"name": "neto"}]})
+    assert next(p for p in api.req("GET", f"/groups/{g['id']}/players", admin, 200).json() if p["name"] == "Neto")["skill"] == 4.8
