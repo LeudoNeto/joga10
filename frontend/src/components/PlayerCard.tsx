@@ -1,4 +1,5 @@
-import { getNameCqw, getTemplate } from "../lib/cards";
+import { useEffect, useRef } from "react";
+import { CARD_TEMPLATES, getNameCqw, getTemplate } from "../lib/cards";
 import { cx } from "./ui";
 
 interface PlayerCardProps {
@@ -12,6 +13,33 @@ interface PlayerCardProps {
   className?: string;
 }
 
+const cardImageCache = new Map<string, HTMLImageElement>();
+
+function getLoadedImage(src: string): Promise<HTMLImageElement> {
+  const existing = cardImageCache.get(src);
+  if (existing && existing.complete && existing.naturalWidth > 0) {
+    return Promise.resolve(existing);
+  }
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      cardImageCache.set(src, img);
+      resolve(img);
+    };
+    img.onerror = () => reject(new Error(`Falha ao carregar imagem: ${src}`));
+    img.src = src;
+  });
+}
+
+// Pre-warm cache for base templates
+if (typeof window !== "undefined") {
+  for (const t of CARD_TEMPLATES) {
+    getLoadedImage(t.fullUrl).catch(() => {});
+    getLoadedImage(t.emptyUrl).catch(() => {});
+  }
+}
+
 export function PlayerCard({
   name,
   position = "MEI",
@@ -23,63 +51,116 @@ export function PlayerCard({
   className,
 }: PlayerCardProps) {
   const template = getTemplate(templateId);
-  const bg = imageUrl || template.fullUrl;
   const posDisplay = (position || "MEI").toUpperCase();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const strongShadow =
-    "0 2px 4px #000, 0 0 14px rgba(0,0,0,0.95), 0 1px 2px #000, -1px -1px 0 rgba(0,0,0,0.8), 1px -1px 0 rgba(0,0,0,0.8), -1px 1px 0 rgba(0,0,0,0.8), 1px 1px 0 rgba(0,0,0,0.8)";
-
-  const maskStyle = {
-    maskImage: `url(${template.fullUrl})`,
-    WebkitMaskImage: `url(${template.fullUrl})`,
-    maskSize: "100% 100%",
-    WebkitMaskSize: "100% 100%",
-    maskRepeat: "no-repeat",
-    WebkitMaskRepeat: "no-repeat",
-  };
-
-  const nameFontSize = `clamp(9px, ${getNameCqw(name)}cqw, 24px)`;
+    "0 2px 5px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.9), -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 1px 2px #000";
 
   const isTemplate1 = template.id === "card-template";
   const nameTop = isTemplate1 ? "66%" : "63.5%";
   const statsTop = isTemplate1 ? "73.5%" : "69%";
   const statsWidth = isTemplate1 ? "78%" : "76%";
+  const nameFontSize = `clamp(9px, ${getNameCqw(name)}cqw, 24px)`;
+
+  const isThreeDigits = (points ?? 0) >= 100;
+  const scoreFontSize = isThreeDigits
+    ? "clamp(14px, 10.2cqw, 35px)"
+    : "clamp(18px, 13cqw, 44px)";
+
+  // High-precision canvas masking engine: identical to export poster, guarantees 100% transparent corners outside shield
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let cancelled = false;
+    const w = template.width;
+    const h = template.height;
+    canvas.width = w;
+    canvas.height = h;
+
+    const render = async () => {
+      try {
+        if (!imageUrl) {
+          const fullImg = await getLoadedImage(template.fullUrl);
+          if (cancelled) return;
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(fullImg, 0, 0, w, h);
+          return;
+        }
+
+        const [playerImg, fullImg, emptyImg] = await Promise.all([
+          getLoadedImage(imageUrl),
+          getLoadedImage(template.fullUrl),
+          getLoadedImage(template.emptyUrl),
+        ]);
+
+        if (cancelled) return;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // 1. Draw player image scaled to fill card dimensions
+        ctx.drawImage(playerImg, 0, 0, w, h);
+
+        // 2. Strict destination-in shield clipping (guarantees 100% transparent corners outside shield)
+        ctx.globalCompositeOperation = "destination-in";
+        ctx.drawImage(fullImg, 0, 0, w, h);
+
+        // 3. Crisp golden border overlay on top
+        ctx.globalCompositeOperation = "source-over";
+        ctx.drawImage(emptyImg, 0, 0, w, h);
+      } catch {
+        if (cancelled) return;
+        ctx.clearRect(0, 0, w, h);
+        try {
+          const fallback = await getLoadedImage(template.fullUrl);
+          if (!cancelled) ctx.drawImage(fallback, 0, 0, w, h);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    render();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl, template.id, template.width, template.height, template.fullUrl, template.emptyUrl]);
 
   return (
     <div
       className={cx(
-        "relative select-none overflow-hidden rounded-2xl drop-shadow-2xl transition-transform [container-type:inline-size]",
+        "relative select-none transition-transform [container-type:inline-size]",
         className
       )}
       style={{
         aspectRatio: `${template.width} / ${template.height}`,
+        filter: "drop-shadow(0 14px 22px rgba(0, 0, 0, 0.7))",
       }}
     >
-      {/* Background card image (masked to shield shape so corners outside remain transparent) */}
-      <img
-        src={bg}
-        alt={name}
+      {/* Background card canvas (composited with destination-in shield clipping and border overlay) */}
+      <canvas
+        ref={canvasRef}
         className="pointer-events-none h-full w-full object-contain"
-        draggable={false}
-        style={maskStyle}
       />
 
-      {/* Top Left: Score, PTS, Position (localized soft backing) */}
+      {/* Top Left: Score, PTS, Position */}
       <div
-        className="pointer-events-none absolute flex flex-col items-center rounded-xl px-2 py-1"
+        className="pointer-events-none absolute flex flex-col items-center px-1"
         style={{
-          top: "18%",
-          left: "14%",
+          top: isTemplate1 ? "18%" : "19%",
+          left: isTemplate1 ? "14%" : "15%",
           minWidth: "16cqw",
-          background:
-            "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.25) 55%, transparent 80%)",
         }}
       >
         <span
           className="font-black leading-none text-white"
           style={{
             textShadow: strongShadow,
-            fontSize: "clamp(18px, 13cqw, 44px)",
+            fontSize: scoreFontSize,
           }}
         >
           {points}
@@ -104,7 +185,7 @@ export function PlayerCard({
         </span>
       </div>
 
-      {/* Center-Lower: Player Name (localized soft backing, always single line without breaking) */}
+      {/* Center-Lower: Player Name */}
       <div
         className="pointer-events-none absolute px-2 text-center"
         style={{
@@ -114,27 +195,19 @@ export function PlayerCard({
           width: "86%",
         }}
       >
-        <div
-          className="overflow-hidden rounded-lg px-2 py-0.5"
+        <h3
+          className="truncate whitespace-nowrap font-black uppercase tracking-wider text-white"
           style={{
-            background:
-              "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.28) 55%, transparent 80%)",
+            textShadow: strongShadow,
+            fontSize: nameFontSize,
+            lineHeight: 1.15,
           }}
         >
-          <h3
-            className="truncate whitespace-nowrap font-black uppercase tracking-wider text-white"
-            style={{
-              textShadow: strongShadow,
-              fontSize: nameFontSize,
-              lineHeight: 1.15,
-            }}
-          >
-            {name}
-          </h3>
-        </div>
+          {name}
+        </h3>
       </div>
 
-      {/* Bottom Section: Separator Line + Stats (localized soft backing) */}
+      {/* Bottom Section: Separator Line + Stats */}
       <div
         className="pointer-events-none absolute flex flex-col items-center"
         style={{
@@ -142,10 +215,6 @@ export function PlayerCard({
           left: "50%",
           transform: "translateX(-50%)",
           width: statsWidth,
-          background:
-            "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.25) 60%, transparent 85%)",
-          padding: "4px 8px",
-          borderRadius: "12px",
         }}
       >
         {/* Horizontal Separator Line */}

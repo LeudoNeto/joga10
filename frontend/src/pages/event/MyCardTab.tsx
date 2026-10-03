@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  Copy,
+  Download,
   ExternalLink,
   Footprints,
   Goal,
   Info,
   Pencil,
+  Share2,
   Sparkles,
   Trophy,
   UserCheck,
@@ -23,9 +26,12 @@ import {
   Input,
   Modal,
   SectionTitle,
+  Select,
   Spinner,
 } from "../../components/ui";
-import { errorMessage } from "../../lib/format";
+import { errorMessage, formatDate } from "../../lib/format";
+import { CARD_FOOTER_TIERS, getDefaultFooterQuote } from "../../lib/cards";
+import { downloadCanvas, drawSingleCardPoster } from "../../lib/exportImage";
 import type { Match, RankingRow } from "../../types";
 import type { EventCtx } from "../EventPage";
 
@@ -48,6 +54,19 @@ export function MyCardTab({ ctx }: { ctx: EventCtx }) {
   const [editAssists, setEditAssists] = useState(0);
   const [savingStats, setSavingStats] = useState(false);
 
+  // Export poster states
+  const [headerText, setHeaderText] = useState("");
+  const [footerText, setFooterText] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState("");
+  const [isCustomFooter, setIsCustomFooter] = useState(false);
+  const [exportRendering, setExportRendering] = useState(false);
+  const exportCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  const myStat = stats?.find((r) => r.player_id === linked?.id);
+  const currentGoals = myStat?.goals ?? 0;
+  const currentAssists = myStat?.assists ?? 0;
+  const currentScore = myStat?.score ?? 0;
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -67,6 +86,61 @@ export function MyCardTab({ ctx }: { ctx: EventCtx }) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Sync default header text with event date
+  useEffect(() => {
+    const formattedDate = event.date ? formatDate(event.date) : formatDate(new Date().toISOString().split("T")[0]);
+    setHeaderText((prev) => (prev ? prev : `Seu Card - ${formattedDate}`));
+  }, [event.date]);
+
+  // Sync default footer quote with current player score
+  useEffect(() => {
+    if (!isCustomFooter) {
+      const quote = getDefaultFooterQuote(currentScore);
+      setSelectedPreset(quote);
+      setFooterText(quote);
+    }
+  }, [currentScore, isCustomFooter]);
+
+  // Live Canvas render effect
+  useEffect(() => {
+    if (!linked || !exportCanvasRef.current) return;
+    let cancelled = false;
+    setExportRendering(true);
+
+    const cardData = {
+      name: linked.name,
+      position: linked.position,
+      score: currentScore,
+      goals: currentGoals,
+      assists: currentAssists,
+      photoUrl: linked.photo_url,
+      templateId: linked.card_template || "card-template",
+    };
+
+    const header = headerText.trim() || `Seu Card - ${event.date ? formatDate(event.date) : ""}`;
+
+    drawSingleCardPoster(exportCanvasRef.current, cardData, header, footerText)
+      .then(() => {
+        if (!cancelled) setExportRendering(false);
+      })
+      .catch((err) => {
+        console.error("Poster render error:", err);
+        if (!cancelled) setExportRendering(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    linked,
+    currentScore,
+    currentGoals,
+    currentAssists,
+    headerText,
+    footerText,
+    event.date,
+  ]);
 
   if (loading && !stats) {
     return <Spinner label="Carregando seu card do evento..." />;
@@ -94,10 +168,26 @@ export function MyCardTab({ ctx }: { ctx: EventCtx }) {
     );
   }
 
-  const myStat = stats?.find((r) => r.player_id === linked.id);
-  const currentGoals = myStat?.goals ?? 0;
-  const currentAssists = myStat?.assists ?? 0;
-  const currentScore = myStat?.score ?? 0;
+  function handleDownloadPoster() {
+    const canvas = exportCanvasRef.current;
+    if (!canvas) return;
+    const safeName = (linked?.name || "card").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    downloadCanvas(canvas, `card-${safeName}.png`);
+    toast("Pôster baixado com sucesso!");
+  }
+
+  async function handleCopyPoster() {
+    const canvas = exportCanvasRef.current;
+    if (!canvas) return;
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Falha ao gerar blob");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("Imagem copiada para a área de transferência!");
+    } catch {
+      toast("Não foi possível copiar automaticamente — utilize o botão Baixar PNG", { tone: "error" });
+    }
+  }
 
   function openEditStats() {
     setEditGoals(currentGoals);
@@ -225,6 +315,160 @@ export function MyCardTab({ ctx }: { ctx: EventCtx }) {
           </Card>
         </div>
       </div>
+
+      {/* Export Section */}
+      <Card className="space-y-6 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+          <SectionTitle
+            icon={Share2}
+            title="Exportar Card"
+            description="Personalize o cabeçalho e a frase de efeito para gerar um pôster em alta resolução (PNG) pronto para compartilhar."
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Copy}
+              disabled={exportRendering}
+              onClick={handleCopyPoster}
+            >
+              Copiar Imagem
+            </Button>
+            <Button
+              size="sm"
+              icon={Download}
+              disabled={exportRendering}
+              onClick={handleDownloadPoster}
+            >
+              Baixar PNG
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-8 lg:grid-cols-[1fr_340px] items-start">
+          {/* Form controls */}
+          <div className="space-y-5">
+            {/* Header input */}
+            <Field
+              label="Cabeçalho do Pôster"
+              hint="Título exibido em destaque dourado no topo do pôster"
+            >
+              <Input
+                value={headerText}
+                onChange={(e) => setHeaderText(e.target.value)}
+                placeholder={`Seu Card - ${formatDate(event.date)}`}
+              />
+            </Field>
+
+            {/* Footer / Quote select & custom input */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-fg">
+                  Frase do Rodapé
+                </label>
+                <span className="text-[11px] font-medium text-subtle">
+                  {currentScore >= 90
+                    ? "🏆 Tier Craque"
+                    : currentScore >= 60
+                    ? "⚡ Tier Regular"
+                    : "🔥 Tier Provocação"}
+                </span>
+              </div>
+
+              {!isCustomFooter ? (
+                <div className="space-y-2">
+                  <Select
+                    value={selectedPreset}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "custom") {
+                        setIsCustomFooter(true);
+                        setSelectedPreset("custom");
+                      } else {
+                        setSelectedPreset(val);
+                        setFooterText(val);
+                      }
+                    }}
+                  >
+                    {CARD_FOOTER_TIERS.map((tier) => (
+                      <optgroup key={tier.id} label={tier.name}>
+                        {tier.quotes.map((q) => (
+                          <option key={q} value={q}>
+                            {q}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                    <optgroup label="Personalização">
+                      <option value="custom">✍️ Digitar frase personalizada...</option>
+                    </optgroup>
+                  </Select>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomFooter(true);
+                      setSelectedPreset("custom");
+                    }}
+                    className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 font-medium"
+                  >
+                    <Pencil size={13} /> Personalizar texto livremente
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    value={footerText}
+                    onChange={(e) => setFooterText(e.target.value)}
+                    placeholder="Digite sua frase personalizada para o rodapé..."
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomFooter(false);
+                      const quote = getDefaultFooterQuote(currentScore);
+                      setSelectedPreset(quote);
+                      setFooterText(quote);
+                    }}
+                    className="inline-flex items-center gap-1 text-xs text-subtle hover:text-fg"
+                  >
+                    ↩️ Voltar às frases sugeridas
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-line bg-surface-2/60 p-4 text-xs text-subtle space-y-1.5 leading-relaxed">
+              <p className="font-semibold text-fg flex items-center gap-1.5">
+                <Sparkles size={14} className="text-amber-500" /> Formato Pôster / Story
+              </p>
+              <p>
+                A imagem é renderizada com as cores e moldura oficiais na proporção vertical em alta definição (1040 × 1600 px), perfeita para redes sociais, WhatsApp ou Stories do Instagram.
+              </p>
+            </div>
+          </div>
+
+          {/* Right: Live Canvas Preview */}
+          <div className="flex flex-col items-center">
+            <div className="relative w-full max-w-[320px] overflow-hidden rounded-2xl border border-line bg-surface-2 shadow-2xl">
+              {exportRendering && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                  <Spinner label="Gerando pôster..." />
+                </div>
+              )}
+              <canvas
+                ref={exportCanvasRef}
+                className="block h-auto w-full"
+                style={{ aspectRatio: "1040 / 1600" }}
+              />
+            </div>
+            <p className="mt-2 text-center text-[11px] text-subtle">
+              Pré-visualização do pôster gerado
+            </p>
+          </div>
+        </div>
+      </Card>
 
       {/* Edit Stats Modal (Only when no matches exist) */}
       {editingStats && (

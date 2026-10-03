@@ -4,7 +4,7 @@ import type { EventItem, RankingRow } from "../types";
 import { formatDate, fmt2, readableOn } from "./format";
 import type { ExportTeam } from "./exportText";
 import { RANKING_FORMULA } from "./exportText";
-import { getTemplate } from "./cards";
+import { getTemplate, getNameCqw } from "./cards";
 
 export type ImageTheme = "light" | "dark";
 
@@ -249,6 +249,7 @@ export async function drawTeamsImage(canvas: HTMLCanvasElement, data: TeamsImage
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
+    img.crossOrigin = "anonymous";
     const timer = setTimeout(() => resolve(null), 4000);
     img.onload = () => {
       clearTimeout(timer);
@@ -364,76 +365,36 @@ function drawCanvasCard(
     ctx.fillRect(x, y, w, h);
   }
 
-  // Localized dark contrast backings (matches PlayerCard.tsx)
-  // Top-left
-  const radTop = ctx.createRadialGradient(
-    x + w * 0.22,
-    y + h * 0.22,
-    0,
-    x + w * 0.22,
-    y + h * 0.22,
-    w * 0.28
-  );
-  radTop.addColorStop(0, "rgba(0, 0, 0, 0.65)");
-  radTop.addColorStop(0.55, "rgba(0, 0, 0, 0.25)");
-  radTop.addColorStop(1, "transparent");
-  ctx.fillStyle = radTop;
-  ctx.fillRect(x, y, w * 0.5, h * 0.42);
-
   const isTemplate1 = (r.card_template || "card-template") === "card-template";
-  const nameGradY = isTemplate1 ? y + h * 0.67 : y + h * 0.655;
-  const statsGradY = isTemplate1 ? y + h * 0.79 : y + h * 0.74;
-  const nameY = isTemplate1 ? y + h * 0.67 : y + h * 0.655;
+  const nameY = isTemplate1 ? y + h * 0.67 : y + h * 0.625;
   const lineY = isTemplate1 ? y + h * 0.735 : y + h * 0.69;
   const statsY = isTemplate1 ? y + h * 0.765 : y + h * 0.72;
 
-  // Center (name)
-  const radName = ctx.createRadialGradient(
-    x + w * 0.5,
-    nameGradY,
-    0,
-    x + w * 0.5,
-    nameGradY,
-    w * 0.45
-  );
-  radName.addColorStop(0, "rgba(0, 0, 0, 0.72)");
-  radName.addColorStop(0.6, "rgba(0, 0, 0, 0.25)");
-  radName.addColorStop(1, "transparent");
-  ctx.fillStyle = radName;
-  ctx.fillRect(x, nameGradY - h * 0.08, w, h * 0.16);
-
-  // Bottom (stats)
-  const radStats = ctx.createRadialGradient(
-    x + w * 0.5,
-    statsGradY,
-    0,
-    x + w * 0.5,
-    statsGradY,
-    w * 0.45
-  );
-  radStats.addColorStop(0, "rgba(0, 0, 0, 0.7)");
-  radStats.addColorStop(0.6, "rgba(0, 0, 0, 0.25)");
-  radStats.addColorStop(1, "transparent");
-  ctx.fillStyle = radStats;
-  ctx.fillRect(x, statsGradY - h * 0.09, w, h * 0.2);
-
-  // Helper for text with crisp outline
+  // Helper for text with crisp outline and contrast drop shadow
   const strokeTextWithShadow = (text: string, tx: number, ty: number, font: string, fill: string) => {
+    ctx.save();
     ctx.font = font;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 1.5;
     ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3.5;
+    ctx.lineJoin = "round";
     ctx.strokeText(text, tx, ty);
     ctx.fillStyle = fill;
     ctx.fillText(text, tx, ty);
+    ctx.restore();
   };
 
   // Top Left: Score, PTS, Position
   const scoreStr = String(r.score);
+  const isThreeDigits = scoreStr.length >= 3;
+  const scoreFontSize = isThreeDigits ? Math.round(w * 0.108) : Math.round(w * 0.135);
   const scoreX = x + w * 0.18;
   const scoreY = y + h * 0.17;
 
   ctx.textAlign = "center";
-  strokeTextWithShadow(scoreStr, scoreX, scoreY, `900 ${Math.round(w * 0.135)}px ${FONT}`, "#ffffff");
+  strokeTextWithShadow(scoreStr, scoreX, scoreY, `900 ${scoreFontSize}px ${FONT}`, "#ffffff");
   strokeTextWithShadow("PTS", scoreX, scoreY + w * 0.12, `800 ${Math.round(w * 0.045)}px ${FONT}`, "#fcd34d");
   const posStr = (r.position || "MEI").toUpperCase();
   strokeTextWithShadow(posStr, scoreX, scoreY + w * 0.18, `900 ${Math.round(w * 0.055)}px ${FONT}`, "#ffffff");
@@ -620,3 +581,235 @@ export function downloadCanvas(canvas: HTMLCanvasElement, filename: string) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, "image/png");
 }
+
+export interface SingleCardExportData {
+  name: string;
+  position?: string | null;
+  score: number;
+  goals: number;
+  assists: number;
+  photoUrl?: string | null;
+  templateId?: string | null;
+}
+
+export async function drawSingleCardPoster(
+  canvas: HTMLCanvasElement,
+  card: SingleCardExportData,
+  headerText: string,
+  footerText: string
+) {
+  await fontsReady();
+
+  const template = getTemplate(card.templateId || "card-template");
+  const fullImg = await loadImage(template.fullUrl);
+  const emptyImg = await loadImage(template.emptyUrl);
+  const playerImg = card.photoUrl ? await loadImage(card.photoUrl) : null;
+
+  // Poster dimensions: 1040 x 1600 (matches card-idea.jpg standard)
+  const W = 1040;
+  const H = 1600;
+
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.aspectRatio = `${W} / ${H}`;
+  const ctx = canvas.getContext("2d")!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // 1. Base dark background
+  ctx.fillStyle = "#0c0c0e";
+  ctx.fillRect(0, 0, W, H);
+
+  // 2. Subtle radial glow behind card
+  const bgGlow = ctx.createRadialGradient(W / 2, H * 0.5, 120, W / 2, H * 0.5, W * 0.85);
+  bgGlow.addColorStop(0, "#1c1c24");
+  bgGlow.addColorStop(0.5, "#121216");
+  bgGlow.addColorStop(1, "#0a0a0c");
+  ctx.fillStyle = bgGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // 3. Outer Frame with rounded golden border
+  const frameX = 48;
+  const frameY = 60;
+  const frameW = W - frameX * 2; // 944
+  const frameH = H - frameY * 2; // 1480
+  const frameR = 36;
+
+  rrect(ctx, frameX, frameY, frameW, frameH, frameR);
+  const borderGrad = ctx.createLinearGradient(frameX, frameY, frameX + frameW, frameY + frameH);
+  borderGrad.addColorStop(0, "rgba(234, 179, 8, 0.4)");
+  borderGrad.addColorStop(0.25, "rgba(250, 204, 21, 0.95)");
+  borderGrad.addColorStop(0.65, "rgba(217, 119, 6, 0.7)");
+  borderGrad.addColorStop(1, "rgba(234, 179, 8, 0.4)");
+  ctx.strokeStyle = borderGrad;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // 4. Card placement & dimensions (Centered vertically)
+  const cardW = 700;
+  const cardH = Math.round(cardW / (template.width / template.height));
+  const cardX = (W - cardW) / 2; // 170
+  const cardY = Math.round((H - cardH) / 2); // vertically centered
+  const cardBottom = cardY + cardH;
+
+  // Symmetric gap: distance from Header to Card == distance from Card to Footer
+  const gap = 110;
+  const headerY = cardY - gap;
+  const footerY = cardBottom + gap;
+
+  // 5. Header text (increased font size)
+  const cleanHeader = (headerText || "SEU CARD").trim().toUpperCase();
+  let headerFontSize = 34; // increased from 24
+  ctx.font = `900 ${headerFontSize}px ${FONT}`;
+  while (ctx.measureText(cleanHeader).width > frameW - 80 && headerFontSize > 16) {
+    headerFontSize -= 1;
+    ctx.font = `900 ${headerFontSize}px ${FONT}`;
+  }
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  try {
+    (ctx as any).letterSpacing = "3px";
+  } catch {}
+  ctx.fillStyle = "#f59e0b"; // golden amber
+  ctx.fillText(cleanHeader, W / 2, headerY);
+  try {
+    (ctx as any).letterSpacing = "0px";
+  } catch {}
+
+  // 6. Build card on an offscreen canvas
+  const cardCanvas = document.createElement("canvas");
+  cardCanvas.width = cardW;
+  cardCanvas.height = cardH;
+  const cardCtx = cardCanvas.getContext("2d")!;
+  cardCtx.textBaseline = "top";
+
+  // A. Draw base image (player photo or fallback template full)
+  if (playerImg) {
+    cardCtx.drawImage(playerImg, 0, 0, cardW, cardH);
+  } else if (fullImg) {
+    cardCtx.drawImage(fullImg, 0, 0, cardW, cardH);
+  }
+
+  // B. Text styling helper with crisp outline and contrast drop shadow
+  const strokeCardText = (text: string, tx: number, ty: number, font: string, fill: string) => {
+    cardCtx.save();
+    cardCtx.font = font;
+    cardCtx.shadowColor = "rgba(0, 0, 0, 0.95)";
+    cardCtx.shadowBlur = 8;
+    cardCtx.shadowOffsetY = 2;
+    cardCtx.strokeStyle = "#000000";
+    cardCtx.lineWidth = 4;
+    cardCtx.lineJoin = "round";
+    cardCtx.strokeText(text, tx, ty);
+    cardCtx.fillStyle = fill;
+    cardCtx.fillText(text, tx, ty);
+    cardCtx.restore();
+  };
+
+  // C. Top Left: Score, PTS, Position (Proportional to PlayerCard.tsx)
+  const isTemplate1 = template.id === "card-template";
+  const scoreStr = String(card.score ?? 0);
+  const isThreeDigits = scoreStr.length >= 3;
+  const scoreFontSize = isThreeDigits ? Math.round(cardW * 0.095) : Math.round(cardW * 0.12);
+  const ptsFontSize = Math.round(cardW * 0.033);
+  const posFontSize = Math.round(cardW * 0.044);
+
+  // Template 1 is 0.245; Template 2 is 0.260 for balanced centering within the upper shield crest
+  const scoreX = isTemplate1 ? cardW * 0.245 : cardW * 0.26;
+  const clusterTop = isTemplate1 ? cardH * 0.19 : cardH * 0.20;
+
+  cardCtx.textAlign = "center";
+  cardCtx.textBaseline = "top";
+
+  // Score
+  strokeCardText(scoreStr, scoreX, clusterTop, `900 ${scoreFontSize}px ${FONT}`, "#ffffff");
+
+  // PTS
+  const ptsY = clusterTop + scoreFontSize * 0.96;
+  strokeCardText("PTS", scoreX, ptsY, `800 ${ptsFontSize}px ${FONT}`, "#fcd34d");
+
+  // Position
+  const posStr = (card.position || "MEI").toUpperCase();
+  const posY = ptsY + ptsFontSize * 1.35;
+  strokeCardText(posStr, scoreX, posY, `900 ${posFontSize}px ${FONT}`, "#ffffff");
+
+  // Template 2 name is placed at 0.635 (matching PlayerCard.tsx nameTop at 63.5%) nicely above line at 0.69
+  const nameY = isTemplate1 ? cardH * 0.67 : cardH * 0.635;
+  const lineY = isTemplate1 ? cardH * 0.735 : cardH * 0.69;
+  const statsY = isTemplate1 ? cardH * 0.765 : cardH * 0.72;
+
+  const cleanName = card.name.toUpperCase();
+  const cqw = getNameCqw(card.name);
+  const nameFontSize = Math.max(16, Math.round(cardW * (cqw / 100)));
+
+  // Draw Player Name
+  cardCtx.textAlign = "center";
+  strokeCardText(
+    truncate(cardCtx, cleanName, cardW * 0.8),
+    cardW / 2,
+    nameY,
+    `900 ${nameFontSize}px ${FONT}`,
+    "#ffffff"
+  );
+
+  // Bottom Stats sizing
+  const goalsX = cardW * 0.35;
+  const assistsX = cardW * 0.65;
+  const statsNumSize = Math.round(cardW * 0.092);
+  const statsLabelSize = Math.round(cardW * 0.038);
+
+  // Draw Separator Line
+  const lineW = isTemplate1 ? cardW * 0.76 : cardW * 0.72;
+  const lineGrad = cardCtx.createLinearGradient((cardW - lineW) / 2, lineY, (cardW + lineW) / 2, lineY);
+  lineGrad.addColorStop(0, "transparent");
+  lineGrad.addColorStop(0.2, "rgba(255, 215, 0, 0.75)");
+  lineGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.95)");
+  lineGrad.addColorStop(0.8, "rgba(255, 215, 0, 0.75)");
+  lineGrad.addColorStop(1, "transparent");
+  cardCtx.fillStyle = lineGrad;
+  cardCtx.fillRect((cardW - lineW) / 2, lineY, lineW, 2);
+
+  // Draw Bottom Stats: Goals & Assists
+  strokeCardText(String(card.goals ?? 0), goalsX, statsY, `900 ${statsNumSize}px ${FONT}`, "#ffffff");
+  strokeCardText("GOLS", goalsX, statsY + statsNumSize * 1.05, `800 ${statsLabelSize}px ${FONT}`, "#f1f5f9");
+
+  strokeCardText(String(card.assists ?? 0), assistsX, statsY, `900 ${statsNumSize}px ${FONT}`, "#ffffff");
+  strokeCardText("ASSIST.", assistsX, statsY + statsNumSize * 1.05, `800 ${statsLabelSize}px ${FONT}`, "#f1f5f9");
+
+  // E. Clip card to shield mask
+  if (fullImg) {
+    cardCtx.globalCompositeOperation = "destination-in";
+    cardCtx.drawImage(fullImg, 0, 0, cardW, cardH);
+    cardCtx.globalCompositeOperation = "source-over";
+  }
+
+  // F. Draw empty border on top so the golden edge is razor sharp
+  if (emptyImg) {
+    cardCtx.drawImage(emptyImg, 0, 0, cardW, cardH);
+  }
+
+  // G. Draw card with drop shadow onto poster
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+  ctx.shadowBlur = 45;
+  ctx.shadowOffsetY = 22;
+  ctx.drawImage(cardCanvas, cardX, cardY, cardW, cardH);
+  ctx.restore();
+
+  ctx.drawImage(cardCanvas, cardX, cardY, cardW, cardH);
+
+  // 7. Footer text (increased font size)
+  const cleanFooter = (footerText || "").trim();
+  if (cleanFooter) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    let footerFontSize = 42; // increased from 32
+    ctx.font = `600 ${footerFontSize}px ${FONT}`;
+    while (ctx.measureText(cleanFooter).width > frameW - 80 && footerFontSize > 20) {
+      footerFontSize -= 1;
+      ctx.font = `600 ${footerFontSize}px ${FONT}`;
+    }
+    ctx.fillStyle = "#f4f4f5";
+    ctx.fillText(cleanFooter, W / 2, footerY);
+  }
+}
+

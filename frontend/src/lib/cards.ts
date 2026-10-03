@@ -58,3 +58,61 @@ export function getNameCqw(name: string): number {
   return 3.2;
 }
 
+export interface FooterTier {
+  id: "craque" | "regular" | "provocacao";
+  name: string;
+  badge: string;
+  minScore: number;
+  maxScore: number;
+  quotes: string[];
+}
+
+export const CARD_FOOTER_TIERS: FooterTier[] = [
+  {
+    id: "craque",
+    name: 'Tier "Craque" (> 90 pts)',
+    badge: "Craque",
+    minScore: 90,
+    maxScore: Infinity,
+    quotes: [
+      "O craque do grupo.",
+      "Domínio total.",
+      "Mostrou pra que veio.",
+      "Desempenho histórico.",
+    ],
+  },
+  {
+    id: "regular",
+    name: 'Tier "Regular" (60 - 89 pts)',
+    badge: "Regular",
+    minScore: 60,
+    maxScore: 89,
+    quotes: [
+      "Sólido como sempre.",
+      "Seguindo firme na evolução.",
+      "Bom jogo, mas dá pra melhorar.",
+      "Um jogo de cada vez.",
+    ],
+  },
+  {
+    id: "provocacao",
+    name: 'Tier "Provocação" (< 60 pts)',
+    badge: "Provocação",
+    minScore: 0,
+    maxScore: 59,
+    quotes: [
+      "Treino é treino, jogo é jogo.",
+      "Estatísticas em manutenção...",
+      "O jogo de hoje fica pra história... a gente esquece.",
+      "Já vi dias melhores, mas a pelada continua.",
+    ],
+  },
+];
+
+export function getDefaultFooterQuote(score: number): string {
+  if (score >= 90) return CARD_FOOTER_TIERS[0].quotes[0];
+  if (score >= 60) return CARD_FOOTER_TIERS[1].quotes[0];
+  return CARD_FOOTER_TIERS[2].quotes[0];
+}
+
+

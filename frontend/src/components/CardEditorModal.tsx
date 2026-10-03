@@ -54,7 +54,12 @@ export function CardEditorModal({
   const template = getTemplate(templateId);
 
   const strongShadow =
-    "0 2px 4px #000, 0 0 14px rgba(0,0,0,0.95), 0 1px 2px #000, -1px -1px 0 rgba(0,0,0,0.8), 1px -1px 0 rgba(0,0,0,0.8), -1px 1px 0 rgba(0,0,0,0.8), 1px 1px 0 rgba(0,0,0,0.8)";
+    "0 2px 5px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.9), -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 1px 2px #000";
+
+  const isThreeDigits = (points ?? 0) >= 100;
+  const scoreFontSize = isThreeDigits
+    ? "clamp(14px, 10.2cqw, 35px)"
+    : "clamp(18px, 13cqw, 44px)";
 
   const maskStyle = {
     maskImage: `url(${template.fullUrl})`,
@@ -354,22 +359,20 @@ export function CardEditorModal({
               />
 
               {/* Layer 3: Live Preview Overlays */}
-              {/* Top-Left: Score, PTS, Position (localized soft backing) */}
+              {/* Top-Left: Score, PTS, Position */}
               <div
-                className="pointer-events-none absolute flex flex-col items-center rounded-xl px-2 py-1"
+                className="pointer-events-none absolute flex flex-col items-center px-1"
                 style={{
                   top: "18%",
                   left: "14%",
                   minWidth: "16cqw",
-                  background:
-                    "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.25) 55%, transparent 80%)",
                 }}
               >
                 <span
                   className="font-black leading-none text-white"
                   style={{
                     textShadow: strongShadow,
-                    fontSize: "clamp(18px, 13cqw, 44px)",
+                    fontSize: scoreFontSize,
                   }}
                 >
                   {points}
@@ -394,7 +397,7 @@ export function CardEditorModal({
                 </span>
               </div>
 
-              {/* Center: Player Name (localized soft backing, always single line without breaking) */}
+              {/* Center: Player Name */}
               <div
                 className="pointer-events-none absolute px-2 text-center"
                 style={{
@@ -404,27 +407,19 @@ export function CardEditorModal({
                   width: "86%",
                 }}
               >
-                <div
-                  className="overflow-hidden rounded-lg px-2 py-0.5"
+                <h3
+                  className="truncate whitespace-nowrap font-black uppercase tracking-wider text-white"
                   style={{
-                    background:
-                      "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.28) 55%, transparent 80%)",
+                    textShadow: strongShadow,
+                    fontSize: `clamp(9px, ${getNameCqw(playerName)}cqw, 24px)`,
+                    lineHeight: 1.15,
                   }}
                 >
-                  <h3
-                    className="truncate whitespace-nowrap font-black uppercase tracking-wider text-white"
-                    style={{
-                      textShadow: strongShadow,
-                      fontSize: `clamp(9px, ${getNameCqw(playerName)}cqw, 24px)`,
-                      lineHeight: 1.15,
-                    }}
-                  >
-                    {playerName}
-                  </h3>
-                </div>
+                  {playerName}
+                </h3>
               </div>
 
-              {/* Bottom Section: Separator Line + Stats (localized soft backing) */}
+              {/* Bottom Section: Separator Line + Stats */}
               <div
                 className="pointer-events-none absolute flex flex-col items-center"
                 style={{
@@ -432,10 +427,6 @@ export function CardEditorModal({
                   left: "50%",
                   transform: "translateX(-50%)",
                   width: template.id === "card-template" ? "78%" : "76%",
-                  background:
-                    "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.25) 60%, transparent 85%)",
-                  padding: "4px 8px",
-                  borderRadius: "12px",
                 }}
               >
                 {/* Separator Line */}
