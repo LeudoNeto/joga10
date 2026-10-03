@@ -491,6 +491,9 @@ export function EmptyState({
 // ---------------------------------------------------------------------------
 // Modal
 // ---------------------------------------------------------------------------
+let activeModalCount = 0;
+let originalBodyOverflow: string | null = null;
+
 export function Modal({
   open,
   onClose,
@@ -510,17 +513,29 @@ export function Modal({
   footer?: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", onKey);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+
+    if (activeModalCount === 0) {
+      originalBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    activeModalCount++;
+
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflow;
+      activeModalCount = Math.max(0, activeModalCount - 1);
+      if (activeModalCount === 0) {
+        document.body.style.overflow = originalBodyOverflow ?? "";
+        originalBodyOverflow = null;
+      }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   const width = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl", xl: "max-w-4xl" }[size];

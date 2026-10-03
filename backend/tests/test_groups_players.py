@@ -237,3 +237,37 @@ def test_import_matches_by_name_update_create_ignore(api):
     # an item without nota never overwrites an existing one
     api.req("POST", f"/groups/{g['id']}/players/bulk", admin, 201, json={"players": [{"name": "neto"}]})
     assert next(p for p in api.req("GET", f"/groups/{g['id']}/players", admin, 200).json() if p["name"] == "Neto")["skill"] == 4.8
+
+
+def test_event_manual_stats(api):
+    admin = api.user()
+    g, players, ev = api.group_with_players(admin, [5.0, 6.0])
+    member = api.join(g["id"], admin, "member")
+    member_id = api.req("GET", "/auth/me", member, 200).json()["id"]
+    p1, p2 = players[0], players[1]
+
+    # Member links themselves to p1
+    api.req("PUT", f"/groups/{g['id']}/members/{member_id}/player", member, 200, json={"player_id": p1["id"]})
+
+    # Member updates their own stats in event (no matches exist)
+    res = api.req("PUT", f"/events/{ev['id']}/stats/{p1['id']}", member, 200, json={"goals": 3, "assists": 2}).json()
+    assert res["goals"] == 3 and res["assists"] == 2
+
+    # Member cannot update p2 stats (403)
+    api.req("PUT", f"/events/{ev['id']}/stats/{p2['id']}", member, 403, json={"goals": 1, "assists": 1})
+
+    # Admin CAN update p2 stats
+    res2 = api.req("PUT", f"/events/{ev['id']}/stats/{p2['id']}", admin, 200, json={"goals": 1, "assists": 4}).json()
+    assert res2["goals"] == 1 and res2["assists"] == 4
+
+    # Ranking returns both players with their manual stats and card_template
+    ranking = api.req("GET", f"/events/{ev['id']}/stats", member, 200).json()
+    assert len(ranking) >= 2
+    r_map = {r["player_id"]: r for r in ranking}
+    assert r_map[p1["id"]]["goals"] == 3
+    assert r_map[p1["id"]]["assists"] == 2
+    assert "card_template" in r_map[p1["id"]]
+    assert r_map[p2["id"]]["goals"] == 1
+    assert r_map[p2["id"]]["assists"] == 4
+
+

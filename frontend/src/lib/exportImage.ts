@@ -4,6 +4,7 @@ import type { EventItem, RankingRow } from "../types";
 import { formatDate, fmt2, readableOn } from "./format";
 import type { ExportTeam } from "./exportText";
 import { RANKING_FORMULA } from "./exportText";
+import { getTemplate } from "./cards";
 
 export type ImageTheme = "light" | "dark";
 
@@ -269,6 +270,227 @@ function initialsOf(name: string) {
   return ((parts[0][0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : parts[0][1] ?? "")).toUpperCase();
 }
 
+function drawCanvasCard(
+  ctx: CanvasRenderingContext2D,
+  r: RankingRow,
+  img: HTMLImageElement | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  isChampion: boolean,
+  isSecond: boolean,
+  isThird: boolean,
+  theme: ImageTheme
+) {
+  // Rank badge text & styling
+  let badgeColor = "#e4e4e7";
+  let badgeText = `${r.rank}º LUGAR`;
+  let badgeBg = "rgba(24, 24, 27, 0.85)";
+  let badgeBorder = "#52525b";
+
+  if (isChampion) {
+    badgeColor = "#fef08a";
+    badgeText = "🏆 1º LUGAR — MVP";
+    badgeBg = "rgba(180, 83, 9, 0.9)";
+    badgeBorder = "#f59e0b";
+  } else if (isSecond) {
+    badgeColor = "#f1f5f9";
+    badgeText = "🥈 2º LUGAR";
+    badgeBg = "rgba(71, 85, 105, 0.9)";
+    badgeBorder = "#94a3b8";
+  } else if (isThird) {
+    badgeColor = "#ffedd5";
+    badgeText = "🥉 3º LUGAR";
+    badgeBg = "rgba(154, 52, 18, 0.9)";
+    badgeBorder = "#ea580c";
+  }
+
+  // Draw rank badge above card
+  const bw = Math.min(w * 0.92, isChampion ? 200 : 160);
+  const bh = isChampion ? 26 : 22;
+  const bx = x + (w - bw) / 2;
+  const by = y - bh - 6;
+
+  rrect(ctx, bx, by, bw, bh, 12);
+  ctx.fillStyle = badgeBg;
+  ctx.fill();
+  ctx.strokeStyle = badgeBorder;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = badgeColor;
+  ctx.font = `800 ${isChampion ? 11.5 : 10.5}px ${FONT}`;
+  ctx.textAlign = "center";
+  ctx.fillText(badgeText, bx + bw / 2, by + (isChampion ? 6 : 5));
+
+  // Podium Card Glow
+  if (isChampion) {
+    ctx.save();
+    ctx.shadowColor = "rgba(245, 158, 11, 0.45)";
+    ctx.shadowBlur = 20;
+    rrect(ctx, x, y, w, h, 16);
+    ctx.fillStyle = "#000000";
+    ctx.fill();
+    ctx.restore();
+  } else if (isSecond) {
+    ctx.save();
+    ctx.shadowColor = "rgba(148, 163, 184, 0.35)";
+    ctx.shadowBlur = 14;
+    rrect(ctx, x, y, w, h, 14);
+    ctx.fillStyle = "#000000";
+    ctx.fill();
+    ctx.restore();
+  } else if (isThird) {
+    ctx.save();
+    ctx.shadowColor = "rgba(234, 88, 12, 0.35)";
+    ctx.shadowBlur = 14;
+    rrect(ctx, x, y, w, h, 14);
+    ctx.fillStyle = "#000000";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Card Body (Clipped to rounded rectangle)
+  ctx.save();
+  rrect(ctx, x, y, w, h, isChampion ? 16 : 14);
+  ctx.clip();
+
+  // Draw player card image
+  if (img) {
+    ctx.drawImage(img, x, y, w, h);
+  } else {
+    ctx.fillStyle = "#18181b";
+    ctx.fillRect(x, y, w, h);
+  }
+
+  // Localized dark contrast backings (matches PlayerCard.tsx)
+  // Top-left
+  const radTop = ctx.createRadialGradient(
+    x + w * 0.22,
+    y + h * 0.22,
+    0,
+    x + w * 0.22,
+    y + h * 0.22,
+    w * 0.28
+  );
+  radTop.addColorStop(0, "rgba(0, 0, 0, 0.65)");
+  radTop.addColorStop(0.55, "rgba(0, 0, 0, 0.25)");
+  radTop.addColorStop(1, "transparent");
+  ctx.fillStyle = radTop;
+  ctx.fillRect(x, y, w * 0.5, h * 0.42);
+
+  const isTemplate1 = (r.card_template || "card-template") === "card-template";
+  const nameGradY = isTemplate1 ? y + h * 0.67 : y + h * 0.655;
+  const statsGradY = isTemplate1 ? y + h * 0.79 : y + h * 0.74;
+  const nameY = isTemplate1 ? y + h * 0.67 : y + h * 0.655;
+  const lineY = isTemplate1 ? y + h * 0.735 : y + h * 0.69;
+  const statsY = isTemplate1 ? y + h * 0.765 : y + h * 0.72;
+
+  // Center (name)
+  const radName = ctx.createRadialGradient(
+    x + w * 0.5,
+    nameGradY,
+    0,
+    x + w * 0.5,
+    nameGradY,
+    w * 0.45
+  );
+  radName.addColorStop(0, "rgba(0, 0, 0, 0.72)");
+  radName.addColorStop(0.6, "rgba(0, 0, 0, 0.25)");
+  radName.addColorStop(1, "transparent");
+  ctx.fillStyle = radName;
+  ctx.fillRect(x, nameGradY - h * 0.08, w, h * 0.16);
+
+  // Bottom (stats)
+  const radStats = ctx.createRadialGradient(
+    x + w * 0.5,
+    statsGradY,
+    0,
+    x + w * 0.5,
+    statsGradY,
+    w * 0.45
+  );
+  radStats.addColorStop(0, "rgba(0, 0, 0, 0.7)");
+  radStats.addColorStop(0.6, "rgba(0, 0, 0, 0.25)");
+  radStats.addColorStop(1, "transparent");
+  ctx.fillStyle = radStats;
+  ctx.fillRect(x, statsGradY - h * 0.09, w, h * 0.2);
+
+  // Helper for text with crisp outline
+  const strokeTextWithShadow = (text: string, tx: number, ty: number, font: string, fill: string) => {
+    ctx.font = font;
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, tx, ty);
+    ctx.fillStyle = fill;
+    ctx.fillText(text, tx, ty);
+  };
+
+  // Top Left: Score, PTS, Position
+  const scoreStr = String(r.score);
+  const scoreX = x + w * 0.18;
+  const scoreY = y + h * 0.17;
+
+  ctx.textAlign = "center";
+  strokeTextWithShadow(scoreStr, scoreX, scoreY, `900 ${Math.round(w * 0.135)}px ${FONT}`, "#ffffff");
+  strokeTextWithShadow("PTS", scoreX, scoreY + w * 0.12, `800 ${Math.round(w * 0.045)}px ${FONT}`, "#fcd34d");
+  const posStr = (r.position || "MEI").toUpperCase();
+  strokeTextWithShadow(posStr, scoreX, scoreY + w * 0.18, `900 ${Math.round(w * 0.055)}px ${FONT}`, "#ffffff");
+
+  // Center: Player Name
+  const cleanName = r.name.toUpperCase();
+  ctx.textAlign = "center";
+  strokeTextWithShadow(
+    truncate(ctx, cleanName, w * 0.8),
+    x + w / 2,
+    nameY,
+    `900 ${Math.round(w * 0.065)}px ${FONT}`,
+    "#ffffff"
+  );
+
+  // Separator Line
+  const lineW = isTemplate1 ? w * 0.76 : w * 0.72;
+  const lineGrad = ctx.createLinearGradient(x + (w - lineW) / 2, lineY, x + (w + lineW) / 2, lineY);
+  lineGrad.addColorStop(0, "transparent");
+  lineGrad.addColorStop(0.2, "rgba(255, 215, 0, 0.75)");
+  lineGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.95)");
+  lineGrad.addColorStop(0.8, "rgba(255, 215, 0, 0.75)");
+  lineGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = lineGrad;
+  ctx.fillRect(x + (w - lineW) / 2, lineY, lineW, 1.5);
+
+  // Bottom Stats: Goals & Assists
+  const goalsX = x + w * 0.35;
+  const assistsX = x + w * 0.65;
+
+  strokeTextWithShadow(String(r.goals), goalsX, statsY, `900 ${Math.round(w * 0.08)}px ${FONT}`, "#ffffff");
+  strokeTextWithShadow("GOLS", goalsX, statsY + w * 0.085, `800 ${Math.round(w * 0.04)}px ${FONT}`, "#f1f5f9");
+
+  strokeTextWithShadow(String(r.assists), assistsX, statsY, `900 ${Math.round(w * 0.08)}px ${FONT}`, "#ffffff");
+  strokeTextWithShadow("ASSISTS", assistsX, statsY + w * 0.085, `800 ${Math.round(w * 0.04)}px ${FONT}`, "#f1f5f9");
+
+  ctx.textAlign = "left";
+  ctx.restore();
+
+  // Border outline around card
+  rrect(ctx, x, y, w, h, isChampion ? 16 : 14);
+  if (isChampion) {
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = 2.5;
+  } else if (isSecond) {
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 2;
+  } else if (isThird) {
+    ctx.strokeStyle = "#ea580c";
+    ctx.lineWidth = 2;
+  } else {
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+  }
+  ctx.stroke();
+}
+
 export async function drawRankingImage(
   canvas: HTMLCanvasElement,
   event: EventItem,
@@ -276,114 +498,111 @@ export async function drawRankingImage(
   theme: ImageTheme
 ) {
   await fontsReady();
-  const photos = await Promise.all(rows.map((r) => (r.photo_url ? loadImage(r.photo_url) : Promise.resolve(null))));
+
+  // Load photos or template fallbacks for all players
+  const loadedImages = await Promise.all(
+    rows.map((r) => {
+      const template = getTemplate(r.card_template || "card-template");
+      const url = r.photo_url || template.fullUrl;
+      return loadImage(url);
+    })
+  );
+
   const T = PALETTES[theme];
-  const margin = 40, rowH = 58, tableTop = 150;
-  const W = 820;
-  const H = tableTop + Math.max(1, rows.length) * rowH + 70;
+  const margin = 40;
+  const W = 780;
+
+  // Dimensions for cards
+  const topCardW = 260;
+  const topCardH = Math.round(topCardW / (757 / 1024)); // ~352px
+  const otherCardW = 220;
+  const otherCardH = Math.round(otherCardW / (757 / 1024)); // ~298px
+
+  // Vertical layout calculations:
+  // Header: 120px
+  // 1st place row: badge (26px) + topCardH (352px) + gap = ~415px
+  // Other rows: 2 cards per row. Each row takes: badge (22px) + otherCardH (298px) + gap (38px) = ~358px
+  const remainingCount = Math.max(0, rows.length - 1);
+  const remainingRows = Math.ceil(remainingCount / 2);
+  const rowStride = otherCardH + 58;
+
+  let H = 130 + 60; // minimum
+  if (rows.length === 1) {
+    H = 130 + topCardH + 70 + 60;
+  } else if (rows.length > 1) {
+    H = 130 + topCardH + 70 + remainingRows * rowStride + 60;
+  }
+
   const ctx = setup(canvas, W, H);
   ctx.fillStyle = T.bg;
   ctx.fillRect(0, 0, W, H);
   header(ctx, T, margin, `Ranking — ${event.title}`, `${formatDate(event.date)}   •   ${rows.length} jogadores`);
 
-  // column titles
-  const colG = W - margin - 250, colA = colG + 54, colBar = colA + 50;
-  ctx.font = `700 12px ${FONT}`;
-  ctx.fillStyle = T.subtitle;
-  ctx.fillText("JOGADOR", margin + 106, tableTop - 26);
-  ctx.fillText("G", colG + 8, tableTop - 26);
-  ctx.fillText("A", colA + 8, tableTop - 26);
-  ctx.fillText("PONTOS", colBar, tableTop - 26);
-
-  // card
-  rrect(ctx, margin, tableTop - 8, W - margin * 2, Math.max(1, rows.length) * rowH + 16, 18);
-  ctx.fillStyle = T.card;
-  ctx.fill();
-  ctx.strokeStyle = T.border;
-  ctx.stroke();
-
-  rows.forEach((r, i) => {
-    const y = tableTop + i * rowH;
-    if (i % 2 === 1) {
-      ctx.fillStyle = T.zebra;
-      ctx.fillRect(margin + 1, y, W - margin * 2 - 2, rowH);
-    }
-    const cy = y + rowH / 2;
-    // rank badge
-    if (r.rank <= 3) {
-      ctx.beginPath();
-      ctx.arc(margin + 34, cy, 15, 0, Math.PI * 2);
-      ctx.fillStyle = MEDALS[r.rank - 1];
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-    } else {
-      ctx.fillStyle = T.subtitle;
-    }
-    ctx.font = `800 15px ${FONT}`;
-    const rank = String(r.rank);
-    ctx.fillText(rank, margin + 34 - ctx.measureText(rank).width / 2, cy - 8);
-
-    // avatar
-    const ax = margin + 76, ar = 18;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(ax, cy, ar, 0, Math.PI * 2);
-    ctx.closePath();
-    ctx.clip();
-    const photo = photos[i];
-    if (photo) {
-      ctx.drawImage(photo, ax - ar, cy - ar, ar * 2, ar * 2);
-    } else {
-      ctx.fillStyle = T.track;
-      ctx.fillRect(ax - ar, cy - ar, ar * 2, ar * 2);
-      ctx.fillStyle = T.name;
-      ctx.font = `700 13px ${FONT}`;
-      const ini = initialsOf(r.name);
-      ctx.fillText(ini, ax - ctx.measureText(ini).width / 2, cy - 7);
-    }
-    ctx.restore();
-    if (r.team_color) {
-      ctx.beginPath();
-      ctx.arc(ax, cy, ar + 1.5, 0, Math.PI * 2);
-      ctx.strokeStyle = r.team_color;
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-      ctx.lineWidth = 1;
-    }
-
-    // name + position/team
-    const nameX = margin + 106, nameW = colG - nameX - 16;
-    ctx.fillStyle = T.name;
-    ctx.font = `700 16px ${FONT}`;
-    ctx.fillText(truncate(ctx, r.name, nameW), nameX, cy - 17);
+  if (rows.length === 0) {
+    ctx.font = `600 16px ${FONT}`;
     ctx.fillStyle = T.subtitle;
-    ctx.font = `500 12.5px ${FONT}`;
-    const meta = [r.position, r.team_name].filter(Boolean).join("  ·  ") || "—";
-    ctx.fillText(truncate(ctx, meta, nameW), nameX, cy + 4);
+    ctx.textAlign = "center";
+    ctx.fillText("Nenhum jogador classificado no momento.", W / 2, 220);
+    ctx.textAlign = "left";
+    brand(ctx, T, W, H);
+    return;
+  }
 
-    // goals / assists
-    ctx.fillStyle = T.name;
-    ctx.font = `700 16px ${FONT}`;
-    ctx.fillText(String(r.goals), colG + 8, cy - 9);
-    ctx.fillText(String(r.assists), colA + 8, cy - 9);
+  // 1st place card: Centered taking full row!
+  const firstRowY = 160;
+  const firstX = (W - topCardW) / 2;
+  drawCanvasCard(
+    ctx,
+    rows[0],
+    loadedImages[0],
+    firstX,
+    firstRowY,
+    topCardW,
+    topCardH,
+    true,
+    false,
+    false,
+    theme
+  );
 
-    // score bar
-    const barW = W - margin - 24 - colBar - 44;
-    rrect(ctx, colBar, cy - 4, barW, 8, 4);
-    ctx.fillStyle = T.track;
-    ctx.fill();
-    if (r.score > 0) {
-      rrect(ctx, colBar, cy - 4, Math.max(8, (barW * r.score) / 100), 8, 4);
-      ctx.fillStyle = T.accent;
-      ctx.fill();
+  // Remaining cards (2 per row):
+  const col1X = Math.round(W / 4 - otherCardW / 2); // ~85px
+  const col2X = Math.round((3 * W) / 4 - otherCardW / 2); // ~475px
+  const startOthersY = firstRowY + topCardH + 60;
+
+  for (let idx = 1; idx < rows.length; idx++) {
+    const pairIndex = idx - 1;
+    const rowNum = Math.floor(pairIndex / 2);
+    const isCol2 = pairIndex % 2 === 1;
+
+    // Center single card on last row if odd number of remaining cards
+    let cardX = isCol2 ? col2X : col1X;
+    if (!isCol2 && idx === rows.length - 1) {
+      cardX = (W - otherCardW) / 2;
     }
-    ctx.fillStyle = T.title;
-    ctx.font = `800 16px ${FONT}`;
-    const score = String(r.score);
-    ctx.fillText(score, W - margin - 18 - ctx.measureText(score).width, cy - 9);
-  });
+
+    const cardY = startOthersY + rowNum * rowStride;
+    const isSecond = idx === 1;
+    const isThird = idx === 2;
+
+    drawCanvasCard(
+      ctx,
+      rows[idx],
+      loadedImages[idx],
+      cardX,
+      cardY,
+      otherCardW,
+      otherCardH,
+      false,
+      isSecond,
+      isThird,
+      theme
+    );
+  }
+
   ctx.fillStyle = T.subtitle;
   ctx.font = `500 12.5px ${FONT}`;
+  ctx.textAlign = "left";
   ctx.fillText(truncate(ctx, RANKING_FORMULA, W - margin * 2 - 90), margin, H - 30);
   brand(ctx, T, W, H);
 }

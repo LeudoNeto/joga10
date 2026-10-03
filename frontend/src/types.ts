@@ -236,6 +236,7 @@ export interface RankingRow {
   name: string;
   position: string | null;
   photo_url: string | null;
+  card_template?: string | null;
   team_id: number | null;
   team_name: string | null;
   team_color: string | null;

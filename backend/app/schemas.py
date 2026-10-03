@@ -391,6 +391,7 @@ class RankingRow(BaseModel):
     name: str
     position: Optional[str]
     photo_url: Optional[str]
+    card_template: Optional[str] = None
     team_id: Optional[int]
     team_name: Optional[str]
     team_color: Optional[str]
@@ -398,3 +399,9 @@ class RankingRow(BaseModel):
     assists: int
     points: int  # raw points from the formula
     score: int  # 0-100, leader = 100
+
+
+class ManualStatUpdate(BaseModel):
+    goals: int = Field(default=0, ge=0, le=100)
+    assists: int = Field(default=0, ge=0, le=100)
+

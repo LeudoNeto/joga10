@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { CalendarDays, ChevronLeft, ChartColumn, Shirt, Swords } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChartColumn, Shirt, Sparkles, Swords } from "lucide-react";
 import { api } from "../api/client";
 import type { EventItem, GroupDetail, Player, Team } from "../types";
 import { Alert, RoleBadge, Spinner, Tabs } from "../components/ui";
@@ -8,6 +8,7 @@ import { errorMessage, formatDate, isStaff } from "../lib/format";
 import { TeamsTab } from "./event/TeamsTab";
 import { MatchesTab } from "./event/MatchesTab";
 import { StatsTab } from "./event/StatsTab";
+import { MyCardTab } from "./event/MyCardTab";
 
 export interface EventCtx {
   event: EventItem;
@@ -22,7 +23,7 @@ export interface EventCtx {
   isStaff: boolean; // admin or moderator
 }
 
-type TabKey = "teams" | "matches" | "stats";
+type TabKey = "teams" | "matches" | "stats" | "my-card";
 
 export function EventPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -102,12 +103,14 @@ export function EventPage() {
           { key: "teams", label: "Times", icon: Shirt, count: teams.length || undefined },
           { key: "matches", label: "Partidas", icon: Swords },
           { key: "stats", label: "Estatísticas", icon: ChartColumn },
+          { key: "my-card", label: "Seu Card", icon: Sparkles },
         ]}
       />
 
       {tab === "teams" && <TeamsTab ctx={ctx} />}
       {tab === "matches" && <MatchesTab ctx={ctx} />}
       {tab === "stats" && <StatsTab ctx={ctx} />}
+      {tab === "my-card" && <MyCardTab ctx={ctx} />}
     </div>
   );
 }

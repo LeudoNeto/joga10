@@ -9,7 +9,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { CARD_TEMPLATES, getTemplate, POSITION_PRESETS } from "../lib/cards";
+import { CARD_TEMPLATES, getNameCqw, getTemplate, POSITION_PRESETS } from "../lib/cards";
 import { Alert, Button, Field, Input, Modal, cx } from "./ui";
 
 interface CardEditorModalProps {
@@ -19,6 +19,9 @@ interface CardEditorModalProps {
   initialPosition?: string | null;
   playerName: string;
   initialTemplateId?: string | null;
+  points?: number;
+  goals?: number;
+  assists?: number;
   onSave: (data: { blob: Blob; position: string; templateId: string }) => Promise<void>;
 }
 
@@ -29,6 +32,9 @@ export function CardEditorModal({
   initialPosition = "MEI",
   playerName,
   initialTemplateId = "card-template",
+  points = 55,
+  goals = 5,
+  assists = 5,
   onSave,
 }: CardEditorModalProps) {
   const [templateId, setTemplateId] = useState(initialTemplateId || "card-template");
@@ -292,7 +298,7 @@ export function CardEditorModal({
               onTouchEnd={handleTouchEnd}
               onWheel={handleWheel}
               className={cx(
-                "relative h-[420px] select-none shadow-2xl transition-all",
+                "relative h-[420px] select-none shadow-2xl transition-all [container-type:inline-size]",
                 isDragging ? "cursor-grabbing" : "cursor-grab"
               )}
               style={{
@@ -354,51 +360,64 @@ export function CardEditorModal({
                 style={{
                   top: "18%",
                   left: "14%",
-                  minWidth: "52px",
+                  minWidth: "16cqw",
                   background:
                     "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.25) 55%, transparent 80%)",
                 }}
               >
                 <span
-                  className="text-3xl font-black leading-none text-white sm:text-4xl"
-                  style={{ textShadow: strongShadow }}
+                  className="font-black leading-none text-white"
+                  style={{
+                    textShadow: strongShadow,
+                    fontSize: "clamp(18px, 13cqw, 44px)",
+                  }}
                 >
-                  55
+                  {points}
                 </span>
                 <span
-                  className="text-[10px] font-extrabold uppercase tracking-widest text-amber-300 sm:text-xs"
-                  style={{ textShadow: strongShadow }}
+                  className="font-extrabold uppercase tracking-widest text-amber-300"
+                  style={{
+                    textShadow: strongShadow,
+                    fontSize: "clamp(6px, 3.4cqw, 12px)",
+                  }}
                 >
                   PTS
                 </span>
                 <span
-                  className="mt-1.5 text-xs font-black uppercase tracking-wider text-white sm:text-sm"
-                  style={{ textShadow: strongShadow }}
+                  className="mt-[0.5cqw] font-black uppercase tracking-wider text-white"
+                  style={{
+                    textShadow: strongShadow,
+                    fontSize: "clamp(7px, 4.4cqw, 15px)",
+                  }}
                 >
                   {position.toUpperCase() || "MEI"}
                 </span>
               </div>
 
-              {/* Center: Player Name (localized soft backing) */}
+              {/* Center: Player Name (localized soft backing, always single line without breaking) */}
               <div
                 className="pointer-events-none absolute px-2 text-center"
                 style={{
-                  top: "56%",
+                  top: template.id === "card-template" ? "66%" : "63.5%",
                   left: "50%",
                   transform: "translateX(-50%)",
-                  width: "84%",
+                  width: "86%",
                 }}
               >
                 <div
-                  className="rounded-lg px-2 py-0.5"
+                  className="overflow-hidden rounded-lg px-2 py-0.5"
                   style={{
                     background:
                       "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.28) 55%, transparent 80%)",
                   }}
                 >
                   <h3
-                    className="line-clamp-2 text-base font-black uppercase tracking-wider text-white sm:text-xl"
-                    style={{ textShadow: strongShadow }}
+                    className="truncate whitespace-nowrap font-black uppercase tracking-wider text-white"
+                    style={{
+                      textShadow: strongShadow,
+                      fontSize: `clamp(9px, ${getNameCqw(playerName)}cqw, 24px)`,
+                      lineHeight: 1.15,
+                    }}
                   >
                     {playerName}
                   </h3>
@@ -409,10 +428,10 @@ export function CardEditorModal({
               <div
                 className="pointer-events-none absolute flex flex-col items-center"
                 style={{
-                  top: "68%",
+                  top: template.id === "card-template" ? "73.5%" : "69%",
                   left: "50%",
                   transform: "translateX(-50%)",
-                  width: "76%",
+                  width: template.id === "card-template" ? "78%" : "76%",
                   background:
                     "radial-gradient(ellipse at center, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.25) 60%, transparent 85%)",
                   padding: "4px 8px",
@@ -429,32 +448,46 @@ export function CardEditorModal({
                   }}
                 />
 
-                {/* Bottom Stats: 5 GOLS | 5 ASSISTS */}
+                {/* Bottom Stats: Gols | Assists */}
                 <div className="mt-1 flex w-full items-center justify-around">
                   <div className="flex flex-col items-center">
                     <span
-                      className="text-xl font-black text-white sm:text-2xl"
-                      style={{ textShadow: strongShadow }}
+                      className="font-black text-white"
+                      style={{
+                        textShadow: strongShadow,
+                        fontSize: "clamp(12px, 8cqw, 28px)",
+                        lineHeight: 1.1,
+                      }}
                     >
-                      5
+                      {goals}
                     </span>
                     <span
-                      className="text-[9px] font-extrabold uppercase tracking-widest text-slate-100 sm:text-[11px]"
-                      style={{ textShadow: strongShadow }}
+                      className="font-extrabold uppercase tracking-widest text-slate-100"
+                      style={{
+                        textShadow: strongShadow,
+                        fontSize: "clamp(6px, 3.4cqw, 12px)",
+                      }}
                     >
                       GOLS
                     </span>
                   </div>
                   <div className="flex flex-col items-center">
                     <span
-                      className="text-xl font-black text-white sm:text-2xl"
-                      style={{ textShadow: strongShadow }}
+                      className="font-black text-white"
+                      style={{
+                        textShadow: strongShadow,
+                        fontSize: "clamp(12px, 8cqw, 28px)",
+                        lineHeight: 1.1,
+                      }}
                     >
-                      5
+                      {assists}
                     </span>
                     <span
-                      className="text-[9px] font-extrabold uppercase tracking-widest text-slate-100 sm:text-[11px]"
-                      style={{ textShadow: strongShadow }}
+                      className="font-extrabold uppercase tracking-widest text-slate-100"
+                      style={{
+                        textShadow: strongShadow,
+                        fontSize: "clamp(6px, 3.4cqw, 12px)",
+                      }}
                     >
                       ASSISTS
                     </span>
@@ -464,7 +497,7 @@ export function CardEditorModal({
             </div>
 
             <p className="mt-2 text-center text-xs text-subtle">
-              Preview com dados padrão (55 PTS, 5 GOLS, 5 ASSISTS)
+              Preview do card ({points} PTS, {goals} GOLS, {assists} ASSISTS)
             </p>
           </div>
 

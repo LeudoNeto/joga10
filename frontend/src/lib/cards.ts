@@ -46,3 +46,15 @@ export const POSITION_PRESETS = [
 export function getTemplate(id?: string | null): CardTemplate {
   return CARD_TEMPLATES.find((t) => t.id === id) ?? CARD_TEMPLATES[0];
 }
+
+/** Computes responsive font size in cqw (container query width %) based on name length */
+export function getNameCqw(name: string): number {
+  const len = (name || "").trim().length;
+  if (len <= 7) return 6.4;
+  if (len <= 10) return 5.8;
+  if (len <= 13) return 5.1;
+  if (len <= 16) return 4.4;
+  if (len <= 20) return 3.8;
+  return 3.2;
+}
+

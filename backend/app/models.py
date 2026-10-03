@@ -273,3 +273,22 @@ class MatchStat(Base):
 
     match = relationship("Match", back_populates="stats")
     player = relationship("Player")
+
+
+class EventManualStat(Base):
+    """Manual stats for an event when no matches are registered."""
+
+    __tablename__ = "event_manual_stats"
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
+    player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True)
+    goals = Column(Integer, default=0, nullable=False)
+    assists = Column(Integer, default=0, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "player_id", name="uq_event_player_manual_stat"),
+    )
+
+    event = relationship("Event")
+    player = relationship("Player")
