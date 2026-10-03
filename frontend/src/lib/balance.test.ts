@@ -57,6 +57,17 @@ describe("drawTeams", () => {
     });
   }
 
+  it("mesma lista dá sempre os mesmos times, na mesma ordem de cores", async () => {
+    for (const mode of ["heuristic", "optimal"] as const) {
+      const first = await drawTeams({ players, numTeams: 4, mode, useSubstitutes: true, pins: [] });
+      for (let i = 0; i < 3; i++) {
+        const shuffled = players.slice().sort(() => Math.random() - 0.5);
+        const again = await drawTeams({ players: shuffled, numTeams: 4, mode, useSubstitutes: true, pins: [] });
+        expect(again.teams).toEqual(first.teams);
+      }
+    }
+  });
+
   it("panelinha maior que o time é recusada", async () => {
     await expect(
       drawTeams({ players: players.slice(0, 6), numTeams: 3, mode: "optimal", useSubstitutes: false, pins: [[1, 2, 3]] })

@@ -126,9 +126,11 @@ export async function drawTeams(input: DrawInput): Promise<DrawOutput> {
       base: a.base.map((b, j) => b + sums[j]),
       cap: a.cap.map((c, j) => c - counts[j]),
     }));
-    // Shuffle before the (stable) sort: players with equal notas don't always
-    // land in the same team when the draw is repeated.
-    const ordenados = shuffle(livres).sort((a, b) => cents(b.skill) - cents(a.skill));
+    // Deterministic order, as in team-balance (nota desc, then name): the same
+    // list always gives the same teams, whoever runs the draw.
+    const ordenados = livres
+      .slice()
+      .sort((a, b) => cents(b.skill) - cents(a.skill) || a.name.localeCompare(b.name, "pt") || a.id - b.id);
     const res = await solve(
       ordenados.map((p) => cents(p.skill)),
       candidatos,
@@ -138,9 +140,9 @@ export async function drawTeams(input: DrawInput): Promise<DrawOutput> {
     proven = res.provado;
   }
 
-  // Without pins the teams are interchangeable: vary which colour gets which
-  // squad instead of always giving the strongest player to the first team.
-  return { teams: presos.size ? teams : shuffle(teams), proven };
+  // Fixed team order (team j gets the j-th colour), so the colours don't swap
+  // between draws of the same list.
+  return { teams, proven };
 }
 
 /* ---------------------------------------------------------------------
