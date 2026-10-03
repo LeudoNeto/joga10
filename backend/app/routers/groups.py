@@ -2,14 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_user, require_group_admin, require_membership
-from ..models import Event, Group, GroupMembership, Player, Role, User
+from ..deps import STAFF_ONLY, get_current_user, require_group_admin, require_membership
+from ..models import STAFF_ROLES, Event, Group, GroupMembership, Player, Role, User
 from ..schemas import (
     GroupCreate,
     GroupDetail,
     GroupSummary,
     GroupUpdate,
     MemberOut,
+    MemberPlayerUpdate,
     MemberRoleUpdate,
 )
 
@@ -89,6 +90,9 @@ def _detail(db: Session, group: Group, role: Role) -> GroupDetail:
             role=m.role,
             joined_at=m.joined_at,
             is_creator=m.user_id == group.created_by,
+            player_id=m.player.id if m.player else None,
+            player_name=m.player.name if m.player else None,
+            player_photo_url=m.player.photo_url if m.player else None,
         )
         for m in members
     ]
@@ -163,6 +167,62 @@ def update_member_role(
             status.HTTP_400_BAD_REQUEST, "Você não pode alterar o seu próprio papel"
         )
     target.role = payload.role
+    db.commit()
+    return _detail(db, group, membership.role)
+
+
+@router.put("/{group_id}/members/{user_id}/player", response_model=GroupDetail)
+def set_member_player(
+    user_id: int,
+    payload: MemberPlayerUpdate,
+    membership: GroupMembership = Depends(require_membership),
+    db: Session = Depends(get_db),
+):
+    """Link a member to the group's Player that represents them.
+
+    Any member may choose their *own* player once (it cannot be changed
+    afterwards). Admins and moderators may set, change or clear the player of
+    any member, including themselves.
+    """
+    group = membership.group
+    target = (
+        db.query(GroupMembership)
+        .filter_by(group_id=group.id, user_id=user_id)
+        .first()
+    )
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membro não encontrado")
+
+    if membership.role not in STAFF_ROLES:
+        if user_id != membership.user_id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
+        if target.player_id is not None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Seu jogador já foi definido. Apenas administradores ou "
+                "moderadores podem alterá-lo",
+            )
+        if payload.player_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Escolha um jogador")
+
+    if payload.player_id is not None:
+        player = db.get(Player, payload.player_id)
+        if player is None or player.group_id != group.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Jogador não encontrado")
+        owner = (
+            db.query(GroupMembership)
+            .filter(
+                GroupMembership.player_id == player.id,
+                GroupMembership.id != target.id,
+            )
+            .first()
+        )
+        if owner is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Este jogador já está associado a {owner.user.name}",
+            )
+    target.player_id = payload.player_id
     db.commit()
     return _detail(db, group, membership.role)
 

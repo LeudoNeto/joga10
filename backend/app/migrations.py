@@ -26,12 +26,18 @@ _COLUMNS = [
     ("teams", "active", "BOOLEAN NOT NULL DEFAULT 1"),
     ("matches", "staying", "VARCHAR(10) NULL"),
     ("match_stats", "event_id", "INTEGER NULL"),
+    ("group_memberships", "player_id", "INTEGER NULL"),
 ]
 
 # (table, column, DDL): created when no existing index starts with the column.
 _INDEXES = [
     ("players", "photo_key", "CREATE UNIQUE INDEX ix_players_photo_key ON players (photo_key)"),
     ("match_stats", "event_id", "CREATE INDEX ix_match_stats_event_id ON match_stats (event_id)"),
+    (
+        "group_memberships",
+        "player_id",
+        "CREATE UNIQUE INDEX ix_group_memberships_player_id ON group_memberships (player_id)",
+    ),
 ]
 
 _ROLE_ENUM = "ENUM('admin','moderator','member')"

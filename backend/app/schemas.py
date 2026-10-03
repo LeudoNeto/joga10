@@ -61,10 +61,19 @@ class MemberOut(BaseModel):
     role: Role
     joined_at: datetime
     is_creator: bool = False
+    # Player of the group that represents this member (None: not chosen yet).
+    player_id: Optional[int] = None
+    player_name: Optional[str] = None
+    player_photo_url: Optional[str] = None
 
 
 class MemberRoleUpdate(BaseModel):
     role: Role
+
+
+class MemberPlayerUpdate(BaseModel):
+    # None unlinks (admins/moderators only).
+    player_id: Optional[int] = None
 
 
 class GroupSummary(BaseModel):

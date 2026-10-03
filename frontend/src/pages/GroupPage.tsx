@@ -8,6 +8,7 @@ import {
   Shirt,
   SlidersHorizontal,
   Trash2,
+  UserCheck,
   Users,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -19,8 +20,9 @@ import { PlayersTab } from "./group/PlayersTab";
 import { EventsTab } from "./group/EventsTab";
 import { InvitesTab } from "./group/InvitesTab";
 import { MembersTab } from "./group/MembersTab";
+import { MyPlayerTab } from "./group/MyPlayerTab";
 
-type TabKey = "players" | "events" | "members" | "invites";
+type TabKey = "players" | "events" | "members" | "me" | "invites";
 
 export function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>();
@@ -94,6 +96,7 @@ export function GroupPage() {
           { key: "players", label: "Jogadores", icon: Shirt, count: detail.player_count },
           { key: "events", label: "Eventos", icon: CalendarDays, count: detail.event_count },
           { key: "members", label: "Membros", icon: Users, count: detail.member_count },
+          { key: "me", label: "Seu Jogador", icon: UserCheck },
           ...(isAdmin ? [{ key: "invites" as TabKey, label: "Convites", icon: Link2 }] : []),
         ]}
       />
@@ -102,6 +105,7 @@ export function GroupPage() {
         {tab === "players" && <PlayersTab group={detail} onChange={load} />}
         {tab === "events" && <EventsTab groupId={id} isAdmin={isAdmin} onChange={load} />}
         {tab === "members" && <MembersTab group={detail} onChange={setDetail} />}
+        {tab === "me" && <MyPlayerTab group={detail} onChange={setDetail} />}
         {tab === "invites" && isAdmin && <InvitesTab groupId={id} />}
       </div>
 

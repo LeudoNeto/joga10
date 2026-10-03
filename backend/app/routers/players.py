@@ -251,6 +251,10 @@ def delete_player(
     db: Session = Depends(get_db),
 ):
     player = _get_owned_player(db, membership.group_id, player_id)
+    # Migrated databases lack the ON DELETE SET NULL FK: unlink explicitly.
+    db.query(GroupMembership).filter(GroupMembership.player_id == player.id).update(
+        {GroupMembership.player_id: None}, synchronize_session=False
+    )
     db.delete(player)
     db.commit()
 

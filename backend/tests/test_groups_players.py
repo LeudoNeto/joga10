@@ -75,6 +75,47 @@ def test_member_role_change(api):
     api.req("PATCH", f"/groups/{g['id']}/members/{creator['user_id']}", member, 403, json={"role": "member"})
 
 
+def test_member_player_link(api):
+    admin = api.user("Admin")
+    g, players, _ = api.group_with_players(admin, [5, 6, 7])
+    gid = g["id"]
+    mod = api.join(gid, admin, "moderator")
+    member = api.join(gid, admin, "member")
+    other = api.join(gid, admin, "member")
+    p0, p1, p2 = (p["id"] for p in players)
+    url = lambda user_id: f"/groups/{gid}/members/{user_id}/player"  # noqa: E731
+
+    # A member picks their own player once.
+    me = api.req("GET", "/auth/me", member, 200).json()["id"]
+    api.req("PUT", url(me), member, 400, json={"player_id": None})
+    detail = api.req("PUT", url(me), member, 200, json={"player_id": p0}).json()
+    mine = next(m for m in detail["members"] if m["user_id"] == me)
+    assert mine["player_id"] == p0 and mine["player_name"] == "P0"
+    # ...and cannot change it afterwards.
+    api.req("PUT", url(me), member, 403, json={"player_id": p1})
+    # A member cannot touch other members.
+    other_id = api.req("GET", "/auth/me", other, 200).json()["id"]
+    api.req("PUT", url(other_id), member, 403, json={"player_id": p1})
+    # A player can only be claimed by one member.
+    api.req("PUT", url(other_id), other, 409, json={"player_id": p0})
+
+    # Moderators/admins can change anyone's player (themselves included).
+    mod_id = api.req("GET", "/auth/me", mod, 200).json()["id"]
+    api.req("PUT", url(mod_id), mod, 200, json={"player_id": p2})
+    api.req("PUT", url(mod_id), mod, 200, json={"player_id": p1})
+    detail = api.req("PUT", url(me), admin, 200, json={"player_id": p2}).json()
+    assert next(m for m in detail["members"] if m["user_id"] == me)["player_id"] == p2
+    api.req("PUT", url(me), mod, 200, json={"player_id": None})
+    # Players of another group are rejected.
+    _, players2, _ = api.group_with_players(admin, [5])
+    api.req("PUT", url(me), admin, 404, json={"player_id": players2[0]["id"]})
+
+    # Deleting a player unlinks its member.
+    api.req("DELETE", f"/groups/{gid}/players/{p1}", admin, 204)
+    detail = api.req("GET", f"/groups/{gid}", admin, 200).json()
+    assert next(m for m in detail["members"] if m["user_id"] == mod_id)["player_id"] is None
+
+
 def test_photo_upload_serve_and_delete(api, client):
     admin = api.user()
     g, players, _ = api.group_with_players(admin, [5])

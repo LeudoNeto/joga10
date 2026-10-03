@@ -88,9 +88,20 @@ class GroupMembership(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role = Column(Enum(Role), default=Role.member, nullable=False)
     joined_at = Column(DateTime, default=datetime.utcnow)
+    # The group's Player that represents this user ("Seu Jogador"). A player
+    # can be claimed by a single member. Members choose it once; afterwards
+    # only admins/moderators can change it.
+    player_id = Column(
+        Integer,
+        ForeignKey("players.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
 
     group = relationship("Group", back_populates="memberships")
     user = relationship("User", back_populates="memberships")
+    player = relationship("Player")
 
 
 class Invite(Base):

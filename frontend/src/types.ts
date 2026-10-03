@@ -34,6 +34,9 @@ export interface Member {
   role: Role;
   joined_at: string;
   is_creator: boolean;
+  player_id: number | null; // player of the group that represents this member
+  player_name: string | null;
+  player_photo_url: string | null;
 }
 
 export interface GroupDetail extends GroupSummary {
