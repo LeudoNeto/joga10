@@ -56,10 +56,6 @@ def event_ranking(
         }
 
     ids = set(team_of) | set(totals)
-    if match_count == 0:
-        # Include all active players of the group when no matches exist
-        group_players = db.query(Player).filter(Player.group_id == event.group_id, Player.active == True).all()
-        ids = ids | {p.id for p in group_players}
 
     players = db.query(Player).filter(Player.id.in_(ids)).all() if ids else []
 

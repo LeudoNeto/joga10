@@ -271,3 +271,27 @@ def test_event_manual_stats(api):
     assert r_map[p2["id"]]["assists"] == 4
 
 
+def test_event_stats_only_shows_team_players_when_no_matches(api):
+    admin = api.user()
+    # Group with 4 players: p1, p2, p3, p4
+    g, players, ev = api.group_with_players(admin, [5.0, 6.0, 7.0, 8.0])
+    p_ids = [p["id"] for p in players]
+
+    # Teams only include p1 and p2 (p3 and p4 are not in any team)
+    api.req(
+        "PUT",
+        f"/events/{ev['id']}/teams",
+        admin,
+        200,
+        json={"mode": "random", "teams": [[p_ids[0]], [p_ids[1]]]},
+    )
+
+    # When no matches exist, stats should only return p1 and p2
+    ranking = api.req("GET", f"/events/{ev['id']}/stats", admin, 200).json()
+    returned_ids = {r["player_id"] for r in ranking}
+    assert returned_ids == {p_ids[0], p_ids[1]}
+    assert p_ids[2] not in returned_ids
+    assert p_ids[3] not in returned_ids
+
+
+
