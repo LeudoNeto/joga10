@@ -73,6 +73,7 @@ export interface Player {
   active: boolean;
   created_at: string;
   photo_url: string | null;
+  card_template: string | null;
 }
 
 export type ImportAction = "update" | "create" | "ignore";

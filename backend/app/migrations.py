@@ -27,6 +27,7 @@ _COLUMNS = [
     ("matches", "staying", "VARCHAR(10) NULL"),
     ("match_stats", "event_id", "INTEGER NULL"),
     ("group_memberships", "player_id", "INTEGER NULL"),
+    ("players", "card_template", "VARCHAR(50) NULL"),
 ]
 
 # (table, column, DDL): created when no existing index starts with the column.

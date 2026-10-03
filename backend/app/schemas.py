@@ -142,6 +142,7 @@ class PlayerUpdate(BaseModel):
     position: Optional[str] = Field(default=None, max_length=50)
     skill: Optional[float] = Field(default=None, ge=SKILL_FLOOR, le=SKILL_CEIL)
     active: Optional[bool] = None
+    card_template: Optional[str] = Field(default=None, max_length=50)
 
 
 class PlayerOut(BaseModel):
@@ -155,6 +156,7 @@ class PlayerOut(BaseModel):
     active: bool
     created_at: datetime
     photo_url: Optional[str] = None
+    card_template: Optional[str] = None
 
 
 # Bulk import ----------------------------------------------------------------

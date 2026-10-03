@@ -4,8 +4,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import require_group_admin, require_group_staff, require_membership
-from ..models import Group, GroupMembership, Player, PlayerPhoto, Role
+from ..deps import (
+    STAFF_ONLY,
+    require_group_admin,
+    require_group_staff,
+    require_membership,
+)
+from ..models import STAFF_ROLES, Group, GroupMembership, Player, PlayerPhoto, Role
 from ..schemas import (
     BulkResult,
     ImportPreview,
@@ -28,8 +33,8 @@ from ..services.photos import MAX_UPLOAD_BYTES, PhotoError, process_photo
 
 router = APIRouter(prefix="/groups/{group_id}/players", tags=["players"])
 
-# Fields a moderator may change (the photo has its own endpoints).
-MODERATOR_FIELDS = {"position"}
+# Fields a moderator or self-member may change (the photo has its own endpoints).
+MODERATOR_FIELDS = {"position", "card_template"}
 
 
 def _range(group: Group) -> SkillRange:
@@ -222,17 +227,29 @@ def _get_owned_player(db: Session, group_id: int, player_id: int) -> Player:
 def update_player(
     player_id: int,
     payload: PlayerUpdate,
-    membership: GroupMembership = Depends(require_group_staff),
+    membership: GroupMembership = Depends(require_membership),
     db: Session = Depends(get_db),
 ):
-    """Admins edit everything; moderators only the position."""
+    """Admins edit everything; moderators only position and card_template;
+    a member linked to this player can edit their own position and card_template."""
     player = _get_owned_player(db, membership.group_id, player_id)
     data = payload.model_dump(exclude_unset=True)
-    if membership.role == Role.moderator and set(data) - MODERATOR_FIELDS:
+
+    is_self = membership.player_id == player_id
+    if membership.role not in STAFF_ROLES:
+        if not is_self:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
+        if set(data) - MODERATOR_FIELDS:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Você só pode alterar a sua posição e a sua foto",
+            )
+    elif membership.role == Role.moderator and (set(data) - MODERATOR_FIELDS):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Moderadores só podem alterar a posição e a foto dos jogadores",
         )
+
     if data.get("skill") is not None:
         _check_skill(membership.group, data["skill"])
     for field, value in data.items():
@@ -263,14 +280,17 @@ def delete_player(
 def upload_photo(
     player_id: int,
     file: UploadFile = File(...),
-    membership: GroupMembership = Depends(require_group_staff),
+    is_card: bool = Form(default=False),
+    membership: GroupMembership = Depends(require_membership),
     db: Session = Depends(get_db),
 ):
-    """Set/replace the (optional) player photo. Admins and moderators."""
+    """Set/replace the (optional) player photo. Admins, moderators, or the member linked to this player."""
+    if membership.role not in STAFF_ROLES and membership.player_id != player_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
     player = _get_owned_player(db, membership.group_id, player_id)
     _, content = _read_upload(file, MAX_UPLOAD_BYTES + 1)
     try:
-        data, content_type = process_photo(content)
+        data, content_type = process_photo(content, is_card=is_card)
     except PhotoError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     if player.photo is None:
@@ -288,9 +308,11 @@ def upload_photo(
 @router.delete("/{player_id}/photo", response_model=PlayerOut)
 def delete_photo(
     player_id: int,
-    membership: GroupMembership = Depends(require_group_staff),
+    membership: GroupMembership = Depends(require_membership),
     db: Session = Depends(get_db),
 ):
+    if membership.role not in STAFF_ROLES and membership.player_id != player_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
     player = _get_owned_player(db, membership.group_id, player_id)
     player.photo = None
     player.photo_key = None

@@ -139,6 +139,7 @@ class Player(Base):
     # Random, unguessable key of the current photo (changes on every upload),
     # used as a capability URL so <img> tags can load it without a token.
     photo_key = Column(String(64), unique=True, index=True, nullable=True)
+    card_template = Column(String(50), nullable=True)
 
     group = relationship("Group", back_populates="players")
     photo = relationship(

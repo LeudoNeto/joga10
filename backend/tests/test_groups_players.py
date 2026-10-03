@@ -136,6 +136,55 @@ def test_photo_upload_serve_and_delete(api, client):
     assert client.get(res.url.path).status_code == 404
 
 
+def test_member_player_position_and_card_photo(api, client):
+    admin = api.user()
+    g, players, _ = api.group_with_players(admin, [5, 6])
+    member = api.join(g["id"], admin, "member")
+    pid = players[0]["id"]
+    p_other = players[1]["id"]
+    me = api.req("GET", "/auth/me", member, 200).json()["id"]
+
+    # Link member to pid
+    api.req("PUT", f"/groups/{g['id']}/members/{me}/player", member, 200, json={"player_id": pid})
+
+    # Member can update position and card_template of their own player
+    res = api.req("PUT", f"/groups/{g['id']}/players/{pid}", member, 200, json={"position": "ATA", "card_template": "card-template2"}).json()
+    assert res["position"] == "ATA"
+    assert res["card_template"] == "card-template2"
+
+    # Member cannot edit other fields of own player
+    api.req("PUT", f"/groups/{g['id']}/players/{pid}", member, 403, json={"name": "New Name"})
+    api.req("PUT", f"/groups/{g['id']}/players/{pid}", member, 403, json={"skill": 9.5})
+
+    # Member cannot edit another player's position
+    api.req("PUT", f"/groups/{g['id']}/players/{p_other}", member, 403, json={"position": "GOL"})
+
+    # Member can upload card photo with is_card=True
+    card_bytes = _png(644, 900)
+    res = api.req(
+        "POST",
+        f"/groups/{g['id']}/players/{pid}/photo",
+        member,
+        200,
+        files={"file": ("card.png", card_bytes, "image/png")},
+        data={"is_card": "true"},
+    ).json()
+    assert res["photo_url"] is not None
+
+    # Card photo preserves dimensions and aspect ratio
+    card_res = client.get(res["photo_url"])
+    assert card_res.status_code == 200
+    im = Image.open(io.BytesIO(card_res.content))
+    assert im.size == (644, 900)
+
+    # Member can delete their photo
+    api.req("DELETE", f"/groups/{g['id']}/players/{pid}/photo", member, 200)
+
+    # Member cannot upload or delete another player's photo
+    api.req("POST", f"/groups/{g['id']}/players/{p_other}/photo", member, 403, files={"file": ("c.png", card_bytes, "image/png")})
+    api.req("DELETE", f"/groups/{g['id']}/players/{p_other}/photo", member, 403)
+
+
 def test_match_names(api):
     admin = api.user()
     g, _, _ = api.group_with_players(admin, [])

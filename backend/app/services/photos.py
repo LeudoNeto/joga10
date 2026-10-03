@@ -21,8 +21,8 @@ class PhotoError(ValueError):
     pass
 
 
-def process_photo(content: bytes) -> tuple[bytes, str]:
-    """Return ``(jpeg_bytes, content_type)`` or raise ``PhotoError``."""
+def process_photo(content: bytes, is_card: bool = False) -> tuple[bytes, str]:
+    """Return ``(bytes, content_type)`` or raise ``PhotoError``."""
     if not content:
         raise PhotoError("Arquivo vazio")
     if len(content) > MAX_UPLOAD_BYTES:
@@ -34,6 +34,21 @@ def process_photo(content: bytes) -> tuple[bytes, str]:
         if image.format not in ALLOWED_FORMATS:
             raise PhotoError("Formato não suportado (use JPG, PNG ou WEBP)")
         image = ImageOps.exif_transpose(image)
+        if is_card:
+            # Preserve aspect ratio and transparent corners for card templates
+            max_dim = 1200
+            if max(image.width, image.height) > max_dim:
+                image.thumbnail((max_dim, max_dim), Image.LANCZOS)
+            out = io.BytesIO()
+            if image.mode in ("RGBA", "LA", "P"):
+                image = image.convert("RGBA")
+                image.save(out, "PNG", optimize=True)
+                return out.getvalue(), "image/png"
+            else:
+                image = image.convert("RGB")
+                image.save(out, "JPEG", quality=90, optimize=True)
+                return out.getvalue(), "image/jpeg"
+
         if image.mode in ("RGBA", "LA", "P"):
             image = image.convert("RGBA")
             background = Image.new("RGB", image.size, (255, 255, 255))
