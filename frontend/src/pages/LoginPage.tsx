@@ -11,6 +11,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string })?.from || "/";
+  const isInvite = from.startsWith("/join/") || from.startsWith("/invite/");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,11 +37,15 @@ export function LoginPage() {
   return (
     <AuthShell
       title="Bem-vindo de volta"
-      subtitle="Entre para organizar suas peladas"
+      subtitle={
+        isInvite
+          ? "Entre na sua conta para aceitar o convite e entrar no grupo"
+          : "Entre para organizar suas peladas"
+      }
       footer={
         <>
           Não tem conta?{" "}
-          <Link to="/signup" className="font-semibold text-accent hover:underline">
+          <Link to="/signup" state={{ from }} className="font-semibold text-accent hover:underline">
             Criar conta
           </Link>
         </>
@@ -70,7 +75,7 @@ export function LoginPage() {
           />
         </Field>
         <Button type="submit" size="lg" className="w-full" icon={LogIn} loading={busy}>
-          Entrar
+          {isInvite ? "Entrar e ver convite" : "Entrar"}
         </Button>
       </form>
     </AuthShell>

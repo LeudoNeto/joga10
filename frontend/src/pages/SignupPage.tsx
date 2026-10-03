@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { UserPlus } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { AuthShell } from "../components/AuthShell";
@@ -9,6 +9,9 @@ import { errorMessage } from "../lib/format";
 export function SignupPage() {
   const { user, signup } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: string })?.from || "/";
+  const isInvite = from.startsWith("/join/") || from.startsWith("/invite/");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -16,7 +19,7 @@ export function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={from} replace />;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -28,7 +31,7 @@ export function SignupPage() {
     setBusy(true);
     try {
       await signup(name, email, password);
-      navigate("/", { replace: true });
+      navigate(from, { replace: true });
     } catch (err) {
       setError(errorMessage(err, "Falha ao criar conta"));
     } finally {
@@ -39,11 +42,15 @@ export function SignupPage() {
   return (
     <AuthShell
       title="Criar sua conta"
-      subtitle="Comece a gerenciar seus grupos esportivos"
+      subtitle={
+        isInvite
+          ? "Cadastre-se para aceitar o convite e entrar no grupo"
+          : "Comece a gerenciar seus grupos esportivos"
+      }
       footer={
         <>
           Já tem conta?{" "}
-          <Link to="/login" className="font-semibold text-accent hover:underline">
+          <Link to="/login" state={{ from }} className="font-semibold text-accent hover:underline">
             Entrar
           </Link>
         </>
@@ -82,7 +89,7 @@ export function SignupPage() {
           />
         </Field>
         <Button type="submit" size="lg" className="w-full" icon={UserPlus} loading={busy}>
-          Criar conta
+          {isInvite ? "Criar conta e ver convite" : "Criar conta"}
         </Button>
       </form>
     </AuthShell>

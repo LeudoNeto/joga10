@@ -8,7 +8,11 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   const location = useLocation();
 
   if (loading) return <Spinner label="Carregando..." className="min-h-screen" />;
-  if (!user)
-    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  if (!user) {
+    const isJoin =
+      location.pathname.startsWith("/join/") || location.pathname.startsWith("/invite/");
+    const target = isJoin ? "/signup" : "/login";
+    return <Navigate to={target} replace state={{ from: location.pathname + location.search }} />;
+  }
   return <>{children}</>;
 }
