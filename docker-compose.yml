@@ -29,6 +29,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:-please-change-this-secret-key}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    networks:
+      default:
+        aliases:
+          - joga10-backend
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 
