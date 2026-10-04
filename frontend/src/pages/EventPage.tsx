@@ -29,7 +29,7 @@ export function EventPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const id = Number(eventId);
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as TabKey) || "teams";
+  const tab = (params.get("tab") as TabKey) || "my-card";
 
   const [event, setEvent] = useState<EventItem | null>(null);
   const [group, setGroup] = useState<GroupDetail | null>(null);
@@ -100,10 +100,10 @@ export function EventPage() {
         value={tab}
         onChange={(key) => setParams({ tab: key }, { replace: true })}
         tabs={[
+          { key: "my-card", label: "Seu Card", icon: Sparkles },
           { key: "teams", label: "Times", icon: Shirt, count: teams.length || undefined },
           { key: "matches", label: "Partidas", icon: Swords },
           { key: "stats", label: "Estatísticas", icon: ChartColumn },
-          { key: "my-card", label: "Seu Card", icon: Sparkles },
         ]}
       />
 

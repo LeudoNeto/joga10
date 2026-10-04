@@ -34,7 +34,7 @@ export function GroupPage() {
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  const tab = (params.get("tab") as TabKey) || "players";
+  const tab = (params.get("tab") as TabKey) || "events";
   const setTab = (key: TabKey) => setParams({ tab: key }, { replace: true });
 
   const load = useCallback(async () => {
@@ -93,10 +93,10 @@ export function GroupPage() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { key: "players", label: "Jogadores", icon: Shirt, count: detail.player_count },
           { key: "events", label: "Eventos", icon: CalendarDays, count: detail.event_count },
-          { key: "members", label: "Membros", icon: Users, count: detail.member_count },
           { key: "me", label: "Seu Jogador", icon: UserCheck },
+          { key: "players", label: "Jogadores", icon: Shirt, count: detail.player_count },
+          { key: "members", label: "Membros", icon: Users, count: detail.member_count },
           ...(isAdmin ? [{ key: "invites" as TabKey, label: "Convites", icon: Link2 }] : []),
         ]}
       />

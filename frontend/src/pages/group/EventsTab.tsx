@@ -90,7 +90,7 @@ export function EventsTab({
           onCreated={(id) => {
             setCreating(false);
             onChange();
-            navigate(`/events/${id}`);
+            navigate(`/events/${id}?tab=teams`);
           }}
         />
       )}
