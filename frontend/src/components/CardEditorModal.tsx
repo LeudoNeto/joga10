@@ -10,6 +10,12 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { CARD_TEMPLATES, getNameCqw, getTemplate, POSITION_PRESETS } from "../lib/cards";
+import {
+  DEFAULT_BOTTOM_SHADE,
+  DEFAULT_LEFT_SHADE,
+  drawCardShades,
+  type CardShade,
+} from "../lib/cardShade";
 import { Alert, Button, Field, Input, Modal, cx } from "./ui";
 
 interface CardEditorModalProps {
@@ -48,8 +54,11 @@ export function CardEditorModal({
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bottomShade, setBottomShade] = useState<CardShade>(DEFAULT_BOTTOM_SHADE);
+  const [leftShade, setLeftShade] = useState<CardShade>(DEFAULT_LEFT_SHADE);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const shadeCanvasRef = useRef<HTMLCanvasElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 310, height: 420 });
   const template = getTemplate(templateId);
 
@@ -159,12 +168,27 @@ export function CardEditorModal({
 
   const handleTouchEnd = () => setIsDragging(false);
 
-  // Wheel zoom (allows zooming out down to 0.1x smoothly)
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.05 : 0.05;
-    setZoom((z) => Math.max(0.1, Math.min(4.0, Math.round((z + delta) * 100) / 100)));
-  };
+  // Wheel zoom (allows zooming out down to 0.1x smoothly).
+  // React registers wheel/touch listeners as passive, so preventDefault() there is ignored
+  // and the modal scrolls. Attach native non-passive listeners to block page scrolling.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!open || !el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
+      setZoom((z) => Math.max(0.1, Math.min(4.0, Math.round((z + delta) * 100) / 100)));
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [open, templateId]);
 
   const resetTransform = () => {
     setZoom(1);
@@ -187,6 +211,22 @@ export function CardEditorModal({
   const displayedHeight = imageObj ? imageObj.naturalHeight * fitScale * zoom : 0;
   const displayedLeft = cWidth / 2 + pan.x - displayedWidth / 2;
   const displayedTop = cHeight / 2 + pan.y - displayedHeight / 2;
+
+  // Render gradient shades in the live preview
+  useEffect(() => {
+    const canvas = shadeCanvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const pw = Math.max(1, Math.round(cWidth * dpr));
+    const ph = Math.max(1, Math.round(cHeight * dpr));
+    if (canvas.width !== pw) canvas.width = pw;
+    if (canvas.height !== ph) canvas.height = ph;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, pw, ph);
+    drawCardShades(ctx, pw, ph, bottomShade, leftShade);
+  }, [open, templateId, cWidth, cHeight, bottomShade, leftShade]);
 
   // Render clean composite base image to canvas and save
   const handleSave = async () => {
@@ -224,6 +264,9 @@ export function CardEditorModal({
 
       // 2. Draw user's image at exact position & zoom
       ctx.drawImage(imageObj, canvasDestX, canvasDestY, canvasDrawWidth, canvasDrawHeight);
+
+      // 2.5 Gradient shades over the photo
+      drawCardShades(ctx, tWidth, tHeight, bottomShade, leftShade);
 
       // 3. Clip everything outside the card shield so it becomes 100% transparent
       ctx.globalCompositeOperation = "destination-in";
@@ -301,9 +344,8 @@ export function CardEditorModal({
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
-              onWheel={handleWheel}
               className={cx(
-                "relative h-[420px] select-none shadow-2xl transition-all [container-type:inline-size]",
+                "relative h-[420px] touch-none select-none shadow-2xl transition-all [container-type:inline-size]",
                 isDragging ? "cursor-grabbing" : "cursor-grab"
               )}
               style={{
@@ -348,6 +390,12 @@ export function CardEditorModal({
                     }}
                   />
                 )}
+
+                {/* Layer 1.5: Gradient shades (same routine used on export) */}
+                <canvas
+                  ref={shadeCanvasRef}
+                  className="absolute inset-0 h-full w-full"
+                />
               </div>
 
               {/* Layer 2: Empty Template Border */}
@@ -625,15 +673,127 @@ export function CardEditorModal({
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
 
-            <div className="rounded-xl border border-line bg-surface-2/40 p-3 text-xs text-muted leading-relaxed">
-              💡 <strong>Liberdade total:</strong> Você pode tirar bastante zoom e mover a imagem livremente,
-              sem obrigação de cobrir as bordas. O fundo temático do card preenche os espaços vazios e a moldura
-              dourada dá o acabamento final.
-            </div>
+        {/* Gradient Shades (full width, side by side on larger screens) */}
+        <div>
+          <label className="text-xs font-semibold uppercase tracking-wider text-subtle">
+            Sombreamento com Degradê
+          </label>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <ShadeControls
+              title="Retângulo inferior"
+              shade={bottomShade}
+              onChange={setBottomShade}
+              onReset={() => setBottomShade(DEFAULT_BOTTOM_SHADE)}
+              sliders={[
+                { key: "offsetY", label: "Deslocamento vertical (altura)", min: 0, max: 100, unit: "%" },
+                { key: "offsetX", label: "Deslocamento horizontal", min: -50, max: 50, unit: "%" },
+              ]}
+            />
+            <ShadeControls
+              title="Retângulo esquerdo"
+              shade={leftShade}
+              onChange={setLeftShade}
+              onReset={() => setLeftShade(DEFAULT_LEFT_SHADE)}
+              sliders={[
+                { key: "offsetX", label: "Deslocamento horizontal (largura)", min: 0, max: 100, unit: "%" },
+                { key: "offsetY", label: "Deslocamento vertical", min: -50, max: 50, unit: "%" },
+              ]}
+            />
           </div>
         </div>
       </div>
     </Modal>
+  );
+}
+
+type ShadeSliderKey = "offsetX" | "offsetY" | "rotation" | "arc";
+
+interface ShadeSliderDef {
+  key: ShadeSliderKey;
+  label: string;
+  min: number;
+  max: number;
+  unit: string;
+}
+
+function ShadeControls({
+  title,
+  shade,
+  onChange,
+  onReset,
+  sliders,
+}: {
+  title: string;
+  shade: CardShade;
+  onChange: (shade: CardShade) => void;
+  onReset: () => void;
+  /** Offset sliders (each shade has its own base edge, so labels/ranges differ). */
+  sliders: ShadeSliderDef[];
+}) {
+  const allSliders: ShadeSliderDef[] = [
+    ...sliders,
+    { key: "rotation", label: "Ângulo de giro", min: -45, max: 45, unit: "°" },
+    { key: "arc", label: "Ângulo do arco", min: -180, max: 180, unit: "°" },
+  ];
+
+  return (
+    <div className="rounded-xl border border-line bg-surface-2/40 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-fg">
+          <input
+            type="checkbox"
+            checked={shade.enabled}
+            onChange={(e) => onChange({ ...shade, enabled: e.target.checked })}
+            className="h-4 w-4 accent-brand-600"
+          />
+          {title}
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            value={shade.color}
+            onChange={(e) => onChange({ ...shade, color: e.target.value })}
+            disabled={!shade.enabled}
+            title="Cor do retângulo"
+            className="h-7 w-9 cursor-pointer rounded border border-line bg-transparent disabled:opacity-40"
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={RotateCcw}
+            onClick={onReset}
+            title="Restaurar padrão"
+          />
+        </div>
+      </div>
+
+      {shade.enabled && (
+        <div className="mt-3 space-y-2">
+          {allSliders.map((s) => (
+            <div key={s.key}>
+              <div className="flex items-center justify-between text-[11px] font-medium text-subtle">
+                <span>{s.label}</span>
+                <span className="tabular">
+                  {Math.round(shade[s.key])}
+                  {s.unit}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={s.min}
+                max={s.max}
+                step={1}
+                value={shade[s.key]}
+                onChange={(e) => onChange({ ...shade, [s.key]: Number(e.target.value) })}
+                className="w-full accent-brand-600"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
