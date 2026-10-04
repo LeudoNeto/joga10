@@ -38,8 +38,13 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-    ports:
-      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - default
+      - alocaai_alocaai_network
 
 volumes:
   db_data:
+
+networks:
+  alocaai_alocaai_network:
+    external: true
