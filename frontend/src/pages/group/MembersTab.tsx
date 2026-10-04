@@ -71,7 +71,6 @@ export function MembersTab({ group, onChange }: { group: GroupDetail; onChange: 
                   {m.is_creator && <Badge>criador</Badge>}
                   {m.user_id === user?.id && <Badge>você</Badge>}
                 </p>
-                <p className="truncate text-xs text-subtle">{m.email}</p>
                 {!isStaff && (
                   <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted">
                     <Shirt size={12} className="shrink-0" />
