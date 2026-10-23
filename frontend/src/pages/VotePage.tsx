@@ -25,6 +25,7 @@ import {
   Card,
   EmptyState,
   Input,
+  PhotoModal,
   SectionTitle,
   Select,
   Spinner,
@@ -72,6 +73,7 @@ export function VotePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
+  const [viewing, setViewing] = useState<Player | null>(null); // photo opened bigger
 
   const load = useCallback(async () => {
     try {
@@ -253,6 +255,7 @@ export function VotePage() {
                           min={group.min_skill}
                           max={group.max_skill}
                           onChange={(value) => change(p.id, value)}
+                          onPhoto={() => setViewing(p)}
                         />
                       ))}
                     </Card>
@@ -298,6 +301,13 @@ export function VotePage() {
           )}
         </>
       )}
+
+      <PhotoModal
+        src={viewing?.photo_url ?? null}
+        name={viewing?.name ?? ""}
+        description={viewing?.position}
+        onClose={() => setViewing(null)}
+      />
     </div>
   );
 }
@@ -316,6 +326,7 @@ function VoteRow({
   min,
   max,
   onChange,
+  onPhoto,
 }: {
   player: Player;
   value: number | null | undefined; // undefined: not voted yet
@@ -324,6 +335,7 @@ function VoteRow({
   min: number;
   max: number;
   onChange: (value: number | null) => void;
+  onPhoto: () => void;
 }) {
   // "Personalizado" opened by hand; a nota off the buttons keeps it open anyway.
   const [open, setOpen] = useState(false);
@@ -349,15 +361,26 @@ function VoteRow({
     if (next !== null) onChange(next);
   }
 
+  const avatar = (
+    <Avatar name={player.name} src={player.photo_url} size={40} className={player.active ? "" : "opacity-50 grayscale"} />
+  );
+
   return (
     <div className={cx("space-y-2.5 px-4 py-3 transition-colors", changed && "bg-brand-600/[0.06]")}>
       <div className="flex items-center gap-3">
-        <Avatar
-          name={player.name}
-          src={player.photo_url}
-          size={40}
-          className={player.active ? "" : "opacity-50 grayscale"}
-        />
+        {player.photo_url ? (
+          <button
+            type="button"
+            onClick={onPhoto}
+            aria-label={`Ver foto de ${player.name}`}
+            title="Ver foto"
+            className="flex shrink-0 cursor-zoom-in rounded-full transition-shadow hover:ring-2 hover:ring-brand-500/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60"
+          >
+            {avatar}
+          </button>
+        ) : (
+          avatar
+        )}
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 font-medium text-fg">
             <span className="truncate">{player.name}</span>

@@ -708,6 +708,25 @@ export function Avatar({
   );
 }
 
+/** A photo shown big (player photos are stored up to 512px), e.g. opened from an avatar. */
+export function PhotoModal({
+  src,
+  name,
+  description,
+  onClose,
+}: {
+  src: string | null; // null: closed
+  name: string;
+  description?: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <Modal open={src !== null} onClose={onClose} title={name} description={description}>
+      {src && <img src={src} alt={name} className="aspect-square w-full rounded-xl bg-surface-2 object-cover" />}
+    </Modal>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Dropdown menu
 // ---------------------------------------------------------------------------
