@@ -19,6 +19,7 @@ from .routers import (
     players,
     stats,
     teams,
+    votes,
 )
 
 logger = logging.getLogger("joga10")
@@ -88,3 +89,4 @@ app.include_router(teams.router, prefix=api_prefix)
 app.include_router(matches.router, prefix=api_prefix)
 app.include_router(stats.router, prefix=api_prefix)
 app.include_router(photos.router, prefix=api_prefix)
+app.include_router(votes.router, prefix=api_prefix)

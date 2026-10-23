@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import (
     STAFF_ONLY,
+    check_skill,
     require_group_admin,
     require_group_staff,
     require_membership,
@@ -41,15 +42,6 @@ def _range(group: Group) -> SkillRange:
     return SkillRange(group.min_skill, group.max_skill)
 
 
-def _check_skill(group: Group, skill: float) -> float:
-    if not group.min_skill <= skill <= group.max_skill:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"A nota deve estar entre {group.min_skill:g} e {group.max_skill:g}",
-        )
-    return skill
-
-
 @router.get("", response_model=list[PlayerOut])
 def list_players(
     membership: GroupMembership = Depends(require_membership),
@@ -77,7 +69,7 @@ def create_player(
         group_id=membership.group_id,
         name=payload.name,
         position=payload.position,
-        skill=_check_skill(group, skill),
+        skill=check_skill(group, skill),
         active=payload.active,
     )
     db.add(player)
@@ -251,7 +243,7 @@ def update_player(
         )
 
     if data.get("skill") is not None:
-        _check_skill(membership.group, data["skill"])
+        check_skill(membership.group, data["skill"])
     for field, value in data.items():
         if field == "position" and value is not None:
             value = value.strip() or None

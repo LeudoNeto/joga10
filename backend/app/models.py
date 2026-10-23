@@ -140,6 +140,11 @@ class Player(Base):
     # used as a capability URL so <img> tags can load it without a token.
     photo_key = Column(String(64), unique=True, index=True, nullable=True)
     card_template = Column(String(50), nullable=True)
+    # "Nota dinâmica": average of the members' votes (None: no votes yet),
+    # refreshed whenever votes change. Only a suggestion: the draws keep using
+    # ``skill`` until an admin applies it.
+    vote_skill = Column(Float, nullable=True)
+    vote_count = Column(Integer, default=0, nullable=False, server_default=text("0"))
 
     group = relationship("Group", back_populates="players")
     photo = relationship(
@@ -167,6 +172,33 @@ class PlayerPhoto(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     player = relationship("Player", back_populates="photo")
+
+
+class PlayerVote(Base):
+    """A member's nota for another player of the group (nota voting).
+
+    ``skill`` None means "Não sei": the voter does not know the player well
+    enough. It is kept (so the player is listed apart to the voter) but does
+    not count in the player's average.
+    """
+
+    __tablename__ = "player_votes"
+    __table_args__ = (
+        UniqueConstraint("voter_id", "player_id", name="uq_vote_voter_player"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(
+        Integer, ForeignKey("grupos.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    voter_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    player_id = Column(
+        Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    skill = Column(Float, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Event(Base):

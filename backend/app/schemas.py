@@ -222,6 +222,51 @@ class NameMatchResult(BaseModel):
     pending: int  # ambiguous or not found
 
 
+# Nota voting ------------------------------------------------------------------
+class VoteItem(BaseModel):
+    player_id: int
+    # Required; None means "Não sei" (does not count in the average).
+    skill: Optional[float] = Field(ge=SKILL_FLOOR, le=SKILL_CEIL)
+
+
+class VotesSave(BaseModel):
+    votes: list[VoteItem] = Field(max_length=1000)
+
+
+class VoteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    player_id: int
+    skill: Optional[float]
+    updated_at: datetime
+
+
+class VoteSummaryRow(BaseModel):
+    player_id: int
+    name: str
+    position: Optional[str]
+    photo_url: Optional[str]
+    active: bool
+    skill: float  # current nota (used by the draws)
+    vote_skill: Optional[float]  # average of the votes (None: no votes)
+    vote_count: int
+    unknown_count: int  # "Não sei" answers
+
+
+class VoteSummary(BaseModel):
+    voters: int  # members with at least one nota given
+    players: list[VoteSummaryRow]
+
+
+class SkillUpdate(BaseModel):
+    player_id: int
+    skill: float = Field(ge=SKILL_FLOOR, le=SKILL_CEIL)
+
+
+class VoteApply(BaseModel):
+    updates: list[SkillUpdate] = Field(min_length=1, max_length=1000)
+
+
 # ---------------------------------------------------------------------------
 # Events
 # ---------------------------------------------------------------------------

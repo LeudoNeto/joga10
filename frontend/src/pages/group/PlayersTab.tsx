@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { FileUp, Pencil, Plus, Search, Shirt, Trash2, UserPlus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { FileUp, Pencil, Plus, Search, Shirt, SlidersHorizontal, Trash2, UserPlus, Vote } from "lucide-react";
 import { api } from "../../api/client";
-import type { GroupDetail, Player } from "../../types";
+import { useAuth } from "../../auth/AuthContext";
+import type { GroupDetail, Player, PlayerVote } from "../../types";
 import { useConfirm, useToast } from "../../components/Feedback";
 import { PhotoPicker, PositionInput, savePhoto, type PhotoChange } from "../../components/PlayerFields";
 import {
@@ -18,23 +20,26 @@ import {
   Modal,
   Spinner,
 } from "../../components/ui";
-import { errorMessage, fmtSkill } from "../../lib/format";
+import { errorMessage, fmtSkill, plural } from "../../lib/format";
+import { ApplyVotesModal } from "./ApplyVotesModal";
 import { ImportPlayersModal, importSummary } from "./ImportPlayersModal";
 
 export function SkillBar({ value, min, max }: { value: number; min: number; max: number }) {
   const pct = max > min ? Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100)) : 0;
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-3 sm:w-28">
+    <div className="flex items-center gap-2 sm:gap-2.5">
+      <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-3 sm:w-28">
         <div className="h-full rounded-full bg-gradient-to-r from-brand-700 to-brand-500" style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-10 text-right text-sm font-semibold tabular text-fg">{fmtSkill(value)}</span>
+      <span className="w-9 text-right text-sm font-semibold tabular text-fg sm:w-10">{fmtSkill(value)}</span>
     </div>
   );
 }
 
 export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: () => void }) {
   const isAdmin = group.role === "admin";
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const confirm = useConfirm();
   const toast = useToast();
   const [players, setPlayers] = useState<Player[] | null>(null);
@@ -42,6 +47,8 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
   const [editing, setEditing] = useState<Player | null>(null);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [applyingVotes, setApplyingVotes] = useState(false);
+  const [voted, setVoted] = useState<Set<number> | null>(null);
   const [query, setQuery] = useState("");
 
   async function load() {
@@ -56,6 +63,18 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.id, group.min_skill, group.max_skill]);
+
+  useEffect(() => {
+    api
+      .get<PlayerVote[]>(`/groups/${group.id}/votes`)
+      .then((votes) => setVoted(new Set(votes.map((v) => v.player_id))))
+      .catch(() => setVoted(null));
+  }, [group.id]);
+
+  // Players the current member has not voted on yet (new ones included).
+  const selfId = group.members.find((m) => m.user_id === user?.id)?.player_id ?? null;
+  const pendingVotes =
+    selfId !== null && voted && players ? players.filter((p) => p.id !== selfId && !voted.has(p.id)).length : 0;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -92,16 +111,34 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar jogador ou posição" className="pl-9" />
         </div>
-        {isAdmin && (
-          <div className="flex gap-2">
-            <Button variant="secondary" icon={FileUp} onClick={() => setImporting(true)}>
-              Importar
-            </Button>
-            <Button icon={Plus} onClick={() => setCreating(true)}>
-              Jogador
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            icon={Vote}
+            onClick={() => navigate(`/groups/${group.id}/vote`)}
+            title={pendingVotes ? `${plural(pendingVotes, "jogador", "jogadores")} sem o seu voto` : "Votar nas notas dos jogadores"}
+          >
+            Votação
+            {pendingVotes > 0 && (
+              <span className="rounded-full bg-brand-600 px-1.5 text-[11px] font-bold leading-[18px] text-white tabular">
+                {pendingVotes}
+              </span>
+            )}
+          </Button>
+          {isAdmin && (
+            <>
+              <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setApplyingVotes(true)}>
+                Atualizar notas
+              </Button>
+              <Button variant="secondary" icon={FileUp} onClick={() => setImporting(true)}>
+                Importar
+              </Button>
+              <Button icon={Plus} onClick={() => setCreating(true)}>
+                Jogador
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {players.length === 0 ? (
@@ -126,14 +163,17 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
           {filtered.map((p) => (
             <div key={p.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2/40">
               <Avatar name={p.name} src={p.photo_url} size={40} className={p.active ? "" : "opacity-50 grayscale"} />
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 truncate font-medium text-fg">
-                  <span className="truncate">{p.name}</span>
+              {/* Phones move the nota next to the position, so the name gets the whole width and wraps instead of being cut. */}
+              <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 sm:gap-x-3">
+                <p className="col-span-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-medium text-fg sm:col-span-1">
+                  <span className="min-w-0 break-words">{p.name}</span>
                   {!p.active && <Badge>inativo</Badge>}
                 </p>
                 <p className="truncate text-xs text-subtle">{p.position || "Sem posição"}</p>
+                <div className="sm:col-start-2 sm:row-span-2 sm:row-start-1">
+                  <SkillBar value={p.skill} min={group.min_skill} max={group.max_skill} />
+                </div>
               </div>
-              <SkillBar value={p.skill} min={group.min_skill} max={group.max_skill} />
               {isAdmin && (
                 <div className="flex shrink-0 gap-0.5">
                   <IconButton icon={Pencil} label="Editar" size="sm" onClick={() => setEditing(p)} />
@@ -175,6 +215,16 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
               toast(`Importação concluída: ${importSummary(result)}`);
               load();
               onChange();
+            }}
+          />
+          <ApplyVotesModal
+            open={applyingVotes}
+            group={group}
+            onClose={() => setApplyingVotes(false)}
+            onApplied={(updated) => {
+              setApplyingVotes(false);
+              toast(`${plural(updated, "nota atualizada", "notas atualizadas")} pela votação`);
+              load();
             }}
           />
         </>

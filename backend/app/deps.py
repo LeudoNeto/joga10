@@ -81,6 +81,16 @@ def require_group_staff(
     return membership
 
 
+def check_skill(group: Group, skill: float) -> float:
+    """Reject a nota outside the group's range."""
+    if not group.min_skill <= skill <= group.max_skill:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"A nota deve estar entre {group.min_skill:g} e {group.max_skill:g}",
+        )
+    return skill
+
+
 # ---------------------------------------------------------------------------
 # Event-scoped guards (used by routers with an `event_id` path parameter)
 # ---------------------------------------------------------------------------

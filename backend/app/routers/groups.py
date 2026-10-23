@@ -13,6 +13,7 @@ from ..schemas import (
     MemberPlayerUpdate,
     MemberRoleUpdate,
 )
+from ..services.votes import clamp_votes, drop_votes
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -136,6 +137,7 @@ def update_group(
         players.filter(Player.skill > new_max).update(
             {Player.skill: new_max}, synchronize_session=False
         )
+        clamp_votes(db, group)
     db.commit()
     db.refresh(group)
     return _detail(db, group, membership.role)
@@ -223,6 +225,9 @@ def set_member_player(
                 f"Este jogador já está associado a {owner.user.name}",
             )
     target.player_id = payload.player_id
+    if payload.player_id is not None:
+        # Nobody votes on their own nota: discard a vote cast before the link.
+        drop_votes(db, group.id, target.user_id, payload.player_id)
     db.commit()
     return _detail(db, group, membership.role)
 
@@ -252,5 +257,6 @@ def leave_group(
             status.HTTP_400_BAD_REQUEST,
             "O criador não pode sair do próprio grupo; exclua-o se necessário",
         )
+    drop_votes(db, membership.group_id, membership.user_id)
     db.delete(membership)
     db.commit()

@@ -2,7 +2,7 @@
 
 Plataforma de organização e gestão de grupos esportivos (peladas): múltiplos
 grupos, papéis por grupo, cadastro/importação de jogadores com nota e foto,
-sorteio de times (Ótimo, Heurístico ou Aleatório, com panelinhas), registro das
+votação de notas pelos membros, sorteio de times (Ótimo, Heurístico ou Aleatório, com panelinhas), registro das
 partidas com gols e assistências, rodízio de times e ranking de jogadores.
 
 - **Front-end:** React + TypeScript + Tailwind, ícones [lucide](https://lucide.dev),
@@ -101,9 +101,9 @@ joga10/
 │       ├── deps.py           # guardas de permissão (membro/moderador/admin)
 │       ├── seed.py           # dados de demonstração
 │       ├── routers/          # auth, groups, invites, players, photos, events,
-│       │                     # teams, matches, stats
+│       │                     # teams, matches, stats, votes
 │       └── services/         # import_players, name_match, photos, rotation,
-│                             # ranking, event_state
+│                             # ranking, event_state, votes
 └── frontend/                 # React + TS + Tailwind
     ├── Dockerfile            # build (node) -> nginx:alpine
     ├── nginx.conf            # SPA fallback + proxy /api
@@ -114,7 +114,7 @@ joga10/
         ├── lib/              # balance.ts (+ worker), draw.ts, exportação
         │                     # texto/imagem, formatação
         └── pages/            # login, signup, grupos, grupo (tabs), evento
-                              # (times, partidas, estatísticas), join
+                              # (times, partidas, estatísticas), votação, join
 ```
 
 ---
@@ -123,7 +123,8 @@ joga10/
 
 - **Usuário Registrado:** qualquer conta (login/signup). Não é necessariamente
   um jogador (RN01 — usuário e jogador são desacoplados).
-- **Membro do Grupo:** acesso somente leitura dentro do grupo.
+- **Membro do Grupo:** acesso somente leitura dentro do grupo; também escolhe
+  o seu jogador e vota nas notas dos demais jogadores.
 - **Moderador do Grupo:** membro que também registra gols e assistências da
   partida atual, conduz as partidas (inicia, finaliza, reabre, cancela) e altera
   **foto e posição** dos jogadores (na aba Estatísticas do evento).
@@ -267,6 +268,29 @@ Cafu - 8
 Dida - 7,5
 ```
 
+## 🗳️ Votação de notas (aba Jogadores)
+
+Qualquer membro abre a **Votação** na aba Jogadores (o botão mostra quantos
+jogadores ainda estão sem o seu voto) e dá uma nota, na faixa do grupo, para
+cada jogador — ou marca **Não sei**. Antes de votar ele precisa dizer qual
+jogador é (a tela já oferece a escolha; membros comuns não podem trocar depois),
+porque ninguém vota na própria nota.
+
+- Os jogadores aparecem em três blocos: **Não votados** (novos no grupo, ou
+  todos na primeira votação), **Marcados como "Não sei"** e **Já votados**
+  (para mudar a nota quando quiser).
+- Ao salvar, a média dos votos de cada jogador (sem os "Não sei") é gravada
+  como a **nota dinâmica** (`Player.vote_skill`). Ela é só uma sugestão: o
+  sorteio continua usando a nota do jogador.
+- Os votos são secretos: cada membro só lê os seus; os admins veem apenas as
+  médias.
+- O admin usa **Atualizar notas** para comparar a nota atual com a média de
+  cada jogador. A média vem sugerida (Aceitar), e para cada jogador ele pode
+  **Recusar** (mantém a nota atual) ou **Editar** (define outra nota).
+- Quem sai do grupo tem os votos apagados; ao ser vinculado a um jogador, o
+  voto do membro nele mesmo é descartado; ao reduzir a faixa de notas, os votos
+  são ajustados como as notas.
+
 ## 🌐 Principais endpoints (prefixo `/api`)
 
 ```
@@ -278,6 +302,8 @@ GET/POST /groups/{id}/players                PUT/DELETE /groups/{id}/players/{pi
 POST/DELETE /groups/{id}/players/{pid}/photo GET /photos/{key}
 POST   /groups/{id}/players/import           POST /groups/{id}/players/bulk
 POST   /groups/{id}/players/match-names      (importar selecionados)
+GET/PUT /groups/{id}/votes                   (meus votos; nota ou null = "Não sei")
+GET    /groups/{id}/votes/summary            POST /groups/{id}/votes/apply (admin)
 GET/POST /groups/{id}/events                 GET/PATCH/DELETE /events/{eid}
 GET/PUT/DELETE /events/{eid}/teams           POST /events/{eid}/teams (novo time)
 DELETE /events/{eid}/teams/{tid}             PUT/DELETE /events/{eid}/teams/{tid}/players/{pid}

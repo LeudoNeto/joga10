@@ -76,6 +76,29 @@ export interface Player {
   card_template: string | null;
 }
 
+export interface PlayerVote {
+  player_id: number;
+  skill: number | null; // null: "Não sei"
+  updated_at: string;
+}
+
+export interface VoteSummaryRow {
+  player_id: number;
+  name: string;
+  position: string | null;
+  photo_url: string | null;
+  active: boolean;
+  skill: number; // current nota (used by the draws)
+  vote_skill: number | null; // average of the votes (null: no votes)
+  vote_count: number;
+  unknown_count: number; // "Não sei" answers
+}
+
+export interface VoteSummary {
+  voters: number;
+  players: VoteSummaryRow[];
+}
+
 export type ImportAction = "update" | "create" | "ignore";
 
 export interface ParsedPlayerRow {

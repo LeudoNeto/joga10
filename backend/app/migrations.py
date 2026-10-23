@@ -28,6 +28,8 @@ _COLUMNS = [
     ("match_stats", "event_id", "INTEGER NULL"),
     ("group_memberships", "player_id", "INTEGER NULL"),
     ("players", "card_template", "VARCHAR(50) NULL"),
+    ("players", "vote_skill", "FLOAT NULL"),
+    ("players", "vote_count", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # (table, column, DDL): created when no existing index starts with the column.

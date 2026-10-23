@@ -491,7 +491,8 @@ export function EmptyState({
 // ---------------------------------------------------------------------------
 // Modal
 // ---------------------------------------------------------------------------
-let activeModalCount = 0;
+// Open modals, the last one on top: Escape only closes the top one.
+const modalStack: object[] = [];
 let originalBodyOverflow: string | null = null;
 
 export function Modal({
@@ -518,19 +519,21 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
+    const token = {};
+    const onKey = (e: KeyboardEvent) =>
+      e.key === "Escape" && modalStack[modalStack.length - 1] === token && onCloseRef.current();
     window.addEventListener("keydown", onKey);
 
-    if (activeModalCount === 0) {
+    if (modalStack.length === 0) {
       originalBodyOverflow = document.body.style.overflow;
       document.body.style.overflow = "hidden";
     }
-    activeModalCount++;
+    modalStack.push(token);
 
     return () => {
       window.removeEventListener("keydown", onKey);
-      activeModalCount = Math.max(0, activeModalCount - 1);
-      if (activeModalCount === 0) {
+      modalStack.splice(modalStack.indexOf(token), 1);
+      if (modalStack.length === 0) {
         document.body.style.overflow = originalBodyOverflow ?? "";
         originalBodyOverflow = null;
       }

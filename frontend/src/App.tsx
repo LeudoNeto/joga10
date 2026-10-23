@@ -7,6 +7,7 @@ import { GroupsPage } from "./pages/GroupsPage";
 import { GroupPage } from "./pages/GroupPage";
 import { EventPage } from "./pages/EventPage";
 import { JoinPage } from "./pages/JoinPage";
+import { VotePage } from "./pages/VotePage";
 
 function InviteRedirect() {
   const { token } = useParams<{ token: string }>();
@@ -27,6 +28,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<GroupsPage />} />
                 <Route path="/groups/:groupId" element={<GroupPage />} />
+                <Route path="/groups/:groupId/vote" element={<VotePage />} />
                 <Route path="/events/:eventId" element={<EventPage />} />
                 <Route path="/join/:token" element={<JoinPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
