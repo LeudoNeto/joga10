@@ -37,6 +37,7 @@ export interface Member {
   player_id: number | null; // player of the group that represents this member
   player_name: string | null;
   player_photo_url: string | null;
+  can_set_password: boolean; // the viewer (an admin) may set this member's password
 }
 
 export interface GroupDetail extends GroupSummary {

@@ -191,7 +191,8 @@ function SettingsModal({
   async function remove() {
     const ok = await confirm({
       title: "Excluir grupo?",
-      message: "Todos os jogadores, eventos, times e estatísticas do grupo serão apagados. Esta ação não pode ser desfeita.",
+      message:
+        "O grupo deixa de aparecer para todos os membros, com seus jogadores, eventos e estatísticas. Os dados ficam guardados, mas o grupo não pode ser reativado pelo app.",
       confirmLabel: "Excluir grupo",
       danger: true,
     });

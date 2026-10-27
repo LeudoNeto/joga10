@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
-import { Crown, Shirt, ShieldCheck, UserRound } from "lucide-react";
+import { Crown, KeyRound, Shirt, ShieldCheck, UserRound } from "lucide-react";
 import { api } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { useToast } from "../../components/Feedback";
-import { Avatar, Badge, Card, RoleBadge, ROLE_LABELS, Select } from "../../components/ui";
+import { PasswordModal } from "../../components/PasswordModal";
+import { Avatar, Badge, Card, IconButton, RoleBadge, ROLE_LABELS, Select } from "../../components/ui";
 import { errorMessage } from "../../lib/format";
 import type { GroupDetail, Member, Player, Role } from "../../types";
 
 const ROLE_HELP: { role: Role; icon: typeof Crown; text: string }[] = [
-  { role: "admin", icon: Crown, text: "gerencia tudo: jogadores, eventos, times, partidas e convites" },
+  {
+    role: "admin",
+    icon: Crown,
+    text: "gerencia tudo: jogadores, eventos, times, partidas, convites e senhas de moderadores e membros (o criador também a dos admins)",
+  },
   { role: "moderator", icon: ShieldCheck, text: "registra gols e assistências, conduz as partidas e altera fotos e posições" },
   { role: "member", icon: UserRound, text: "acompanha tudo, somente leitura" },
 ];
@@ -18,6 +23,7 @@ export function MembersTab({ group, onChange }: { group: GroupDetail; onChange: 
   const toast = useToast();
   const [busy, setBusy] = useState<number | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [resetting, setResetting] = useState<Member | null>(null); // member getting a new password
   const isAdmin = group.role === "admin";
   // Admins and moderators may change which player each member is.
   const isStaff = isAdmin || group.role === "moderator";
@@ -104,17 +110,27 @@ export function MembersTab({ group, onChange }: { group: GroupDetail; onChange: 
                 </div>
               )}
               {editable ? (
-                <div className="w-40">
-                  <Select
-                    value={m.role}
-                    disabled={busy === m.user_id}
-                    onChange={(e) => changeRole(m.user_id, e.target.value as Role)}
-                    aria-label={`Papel de ${m.name}`}
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="moderator">Moderador</option>
-                    <option value="member">Membro</option>
-                  </Select>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-40">
+                    <Select
+                      value={m.role}
+                      disabled={busy === m.user_id}
+                      onChange={(e) => changeRole(m.user_id, e.target.value as Role)}
+                      aria-label={`Papel de ${m.name}`}
+                    >
+                      <option value="admin">Admin</option>
+                      <option value="moderator">Moderador</option>
+                      <option value="member">Membro</option>
+                    </Select>
+                  </div>
+                  {m.can_set_password && (
+                    <IconButton
+                      icon={KeyRound}
+                      label={`Alterar senha de ${m.name}`}
+                      variant="secondary"
+                      onClick={() => setResetting(m)}
+                    />
+                  )}
                 </div>
               ) : (
                 <RoleBadge role={m.role} />
@@ -133,6 +149,13 @@ export function MembersTab({ group, onChange }: { group: GroupDetail; onChange: 
           </div>
         ))}
       </div>
+      {isAdmin && (
+        <PasswordModal
+          open={resetting !== null}
+          onClose={() => setResetting(null)}
+          member={resetting ? { groupId: group.id, userId: resetting.user_id, name: resetting.name } : undefined}
+        />
+      )}
     </div>
   );
 }

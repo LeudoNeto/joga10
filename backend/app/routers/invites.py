@@ -72,6 +72,8 @@ def revoke_invite(
 def _validate(invite: Invite | None) -> tuple[bool, str | None]:
     if invite is None:
         return False, "Convite não encontrado"
+    if invite.group.deleted_at is not None:
+        return False, "Este grupo foi excluído"
     if not invite.active:
         return False, "Este convite foi revogado"
     if invite.expires_at and invite.expires_at < datetime.utcnow():

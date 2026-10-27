@@ -38,7 +38,7 @@ def get_current_user(
 # ---------------------------------------------------------------------------
 def get_group(group_id: int, db: Session = Depends(get_db)) -> Group:
     group = db.get(Group, group_id)
-    if group is None:
+    if group is None or group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Grupo não encontrado")
     return group
 
@@ -96,7 +96,7 @@ def check_skill(group: Group, skill: float) -> float:
 # ---------------------------------------------------------------------------
 def get_event(event_id: int, db: Session = Depends(get_db)) -> Event:
     event = db.get(Event, event_id)
-    if event is None:
+    if event is None or event.group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Evento não encontrado")
     return event
 

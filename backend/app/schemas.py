@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -9,6 +9,9 @@ from .models import Role
 SKILL_FLOOR = 0.0
 SKILL_CEIL = 100.0
 
+# Same rule wherever a password is chosen (signup, change, set by an admin).
+Password = Annotated[str, Field(min_length=6, max_length=128)]
+
 
 # ---------------------------------------------------------------------------
 # Auth / Users
@@ -16,7 +19,12 @@ SKILL_CEIL = 100.0
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
-    password: str = Field(min_length=6, max_length=128)
+    password: Password
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: Password
 
 
 class UserLogin(BaseModel):
@@ -65,6 +73,8 @@ class MemberOut(BaseModel):
     player_id: Optional[int] = None
     player_name: Optional[str] = None
     player_photo_url: Optional[str] = None
+    # The viewer (an admin) may set this member's password (services.accounts).
+    can_set_password: bool = False
 
 
 class MemberRoleUpdate(BaseModel):
@@ -74,6 +84,10 @@ class MemberRoleUpdate(BaseModel):
 class MemberPlayerUpdate(BaseModel):
     # None unlinks (admins/moderators only).
     player_id: Optional[int] = None
+
+
+class MemberPasswordUpdate(BaseModel):
+    new_password: Password
 
 
 class GroupSummary(BaseModel):

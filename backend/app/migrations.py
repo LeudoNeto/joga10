@@ -30,6 +30,7 @@ _COLUMNS = [
     ("players", "card_template", "VARCHAR(50) NULL"),
     ("players", "vote_skill", "FLOAT NULL"),
     ("players", "vote_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("grupos", "deleted_at", "DATETIME NULL"),
 ]
 
 # (table, column, DDL): created when no existing index starts with the column.

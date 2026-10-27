@@ -63,6 +63,8 @@ class Group(Base):
     # Allowed range for player notas in this group (e.g. 0-10 or 0-5).
     min_skill = Column(Float, default=0.0, nullable=False, server_default=text("0"))
     max_skill = Column(Float, default=10.0, nullable=False, server_default=text("10"))
+    # Logical delete: a deleted group keeps its data but is hidden everywhere.
+    deleted_at = Column(DateTime, nullable=True)
 
     memberships = relationship(
         "GroupMembership", back_populates="group", cascade="all, delete-orphan"

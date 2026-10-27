@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -10,9 +12,12 @@ from ..schemas import (
     GroupSummary,
     GroupUpdate,
     MemberOut,
+    MemberPasswordUpdate,
     MemberPlayerUpdate,
     MemberRoleUpdate,
 )
+from ..security import hash_password
+from ..services.accounts import password_blockers
 from ..services.votes import clamp_votes, drop_votes
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -49,7 +54,7 @@ def list_my_groups(
     )
     result = []
     for m in memberships:
-        if m.group is not None:
+        if m.group is not None and m.group.deleted_at is None:
             result.append(_summary(db, m.group, m.role))
     return result
 
@@ -72,16 +77,22 @@ def create_group(
     db.add(membership)
     db.commit()
     db.refresh(group)
-    return _detail(db, group, Role.admin)
+    return _detail(db, group, membership)
 
 
-def _detail(db: Session, group: Group, role: Role) -> GroupDetail:
-    summary = _summary(db, group, role)
+def _detail(db: Session, group: Group, viewer: GroupMembership) -> GroupDetail:
+    summary = _summary(db, group, viewer.role)
     members = (
         db.query(GroupMembership)
         .filter_by(group_id=group.id)
         .join(User, User.id == GroupMembership.user_id)
         .all()
+    )
+    others = [m.user_id for m in members if m.user_id != viewer.user_id]
+    blockers = (
+        password_blockers(db, viewer.user_id, group.id, others)
+        if viewer.role == Role.admin
+        else {}
     )
     member_out = [
         MemberOut(
@@ -94,6 +105,7 @@ def _detail(db: Session, group: Group, role: Role) -> GroupDetail:
             player_id=m.player.id if m.player else None,
             player_name=m.player.name if m.player else None,
             player_photo_url=m.player.photo_url if m.player else None,
+            can_set_password=m.user_id in blockers and blockers[m.user_id] is None,
         )
         for m in members
     ]
@@ -105,7 +117,7 @@ def get_group_detail(
     membership: GroupMembership = Depends(require_membership),
     db: Session = Depends(get_db),
 ):
-    return _detail(db, membership.group, membership.role)
+    return _detail(db, membership.group, membership)
 
 
 @router.patch("/{group_id}", response_model=GroupDetail)
@@ -140,7 +152,7 @@ def update_group(
         clamp_votes(db, group)
     db.commit()
     db.refresh(group)
-    return _detail(db, group, membership.role)
+    return _detail(db, group, membership)
 
 
 @router.patch("/{group_id}/members/{user_id}", response_model=GroupDetail)
@@ -170,7 +182,7 @@ def update_member_role(
         )
     target.role = payload.role
     db.commit()
-    return _detail(db, group, membership.role)
+    return _detail(db, group, membership)
 
 
 @router.put("/{group_id}/members/{user_id}/player", response_model=GroupDetail)
@@ -229,7 +241,37 @@ def set_member_player(
         # Nobody votes on their own nota: discard a vote cast before the link.
         drop_votes(db, group.id, target.user_id, payload.player_id)
     db.commit()
-    return _detail(db, group, membership.role)
+    return _detail(db, group, membership)
+
+
+@router.put("/{group_id}/members/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
+def set_member_password(
+    user_id: int,
+    payload: MemberPasswordUpdate,
+    membership: GroupMembership = Depends(require_group_admin),
+    db: Session = Depends(get_db),
+):
+    """Admins set a new password for a member of the group (e.g. a forgotten
+    one). The creator reaches admins too; see services.accounts for the rule
+    across the other groups of the member."""
+    group = membership.group
+    target = (
+        db.query(GroupMembership)
+        .filter_by(group_id=group.id, user_id=user_id)
+        .first()
+    )
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membro não encontrado")
+    if user_id == membership.user_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Para alterar a sua própria senha, use o menu do seu usuário",
+        )
+    reason = password_blockers(db, membership.user_id, group.id, [user_id])[user_id]
+    if reason:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, reason)
+    target.user.password_hash = hash_password(payload.new_password)
+    db.commit()
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -237,13 +279,14 @@ def delete_group(
     membership: GroupMembership = Depends(require_group_admin),
     db: Session = Depends(get_db),
 ):
+    """Logical delete: the group and its data stay in the database, hidden."""
     group = membership.group
     if group.created_by != membership.user_id:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Apenas o criador do grupo pode excluí-lo",
         )
-    db.delete(group)
+    group.deleted_at = datetime.utcnow()
     db.commit()
 
 
