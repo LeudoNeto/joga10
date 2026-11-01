@@ -4,7 +4,7 @@ import type { EventItem, RankingRow } from "../types";
 import { formatDate, fmt2, readableOn } from "./format";
 import type { ExportTeam } from "./exportText";
 import { RANKING_FORMULA } from "./exportText";
-import { getTemplate, getNameCqw } from "./cards";
+import { getTemplate, getNameCqw, type CardTemplate } from "./cards";
 
 export type ImageTheme = "light" | "dark";
 
@@ -274,7 +274,7 @@ function initialsOf(name: string) {
 function drawCanvasCard(
   ctx: CanvasRenderingContext2D,
   r: RankingRow,
-  img: HTMLImageElement | null,
+  art: CardArt,
   x: number,
   y: number,
   w: number,
@@ -352,87 +352,24 @@ function drawCanvasCard(
     ctx.restore();
   }
 
-  // Card Body (Clipped to rounded rectangle)
-  ctx.save();
-  rrect(ctx, x, y, w, h, isChampion ? 16 : 14);
-  ctx.clip();
-
-  // Draw player card image
-  if (img) {
-    ctx.drawImage(img, x, y, w, h);
-  } else {
-    ctx.fillStyle = "#18181b";
-    ctx.fillRect(x, y, w, h);
-  }
-
-  const isTemplate1 = (r.card_template || "card-template") === "card-template";
-  const nameY = isTemplate1 ? y + h * 0.67 : y + h * 0.625;
-  const lineY = isTemplate1 ? y + h * 0.735 : y + h * 0.69;
-  const statsY = isTemplate1 ? y + h * 0.765 : y + h * 0.72;
-
-  // Helper for text with crisp outline and contrast drop shadow
-  const strokeTextWithShadow = (text: string, tx: number, ty: number, font: string, fill: string) => {
-    ctx.save();
-    ctx.font = font;
-    ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetY = 1.5;
-    ctx.strokeStyle = "#000000";
-    ctx.lineWidth = 3.5;
-    ctx.lineJoin = "round";
-    ctx.strokeText(text, tx, ty);
-    ctx.fillStyle = fill;
-    ctx.fillText(text, tx, ty);
-    ctx.restore();
-  };
-
-  // Top Left: Score, PTS, Position
-  const scoreStr = String(r.score);
-  const isThreeDigits = scoreStr.length >= 3;
-  const scoreFontSize = isThreeDigits ? Math.round(w * 0.108) : Math.round(w * 0.135);
-  const scoreX = x + w * 0.18;
-  const scoreY = y + h * 0.17;
-
-  ctx.textAlign = "center";
-  strokeTextWithShadow(scoreStr, scoreX, scoreY, `900 ${scoreFontSize}px ${FONT}`, "#ffffff");
-  strokeTextWithShadow("PTS", scoreX, scoreY + w * 0.12, `800 ${Math.round(w * 0.045)}px ${FONT}`, "#fcd34d");
-  const posStr = (r.position || "MEI").toUpperCase();
-  strokeTextWithShadow(posStr, scoreX, scoreY + w * 0.18, `900 ${Math.round(w * 0.055)}px ${FONT}`, "#ffffff");
-
-  // Center: Player Name
-  const cleanName = r.name.toUpperCase();
-  ctx.textAlign = "center";
-  strokeTextWithShadow(
-    truncate(ctx, cleanName, w * 0.8),
-    x + w / 2,
-    nameY,
-    `900 ${Math.round(w * 0.065)}px ${FONT}`,
-    "#ffffff"
+  // Card body: the same card as the single-card export, fitted in the box
+  // (no stretching: templates have different proportions).
+  const ratio = art.template.width / art.template.height;
+  const fitW = Math.min(w, h * ratio);
+  const fitH = fitW / ratio;
+  const card = renderCard(
+    {
+      name: r.name,
+      position: r.position,
+      score: r.score,
+      goals: r.goals,
+      assists: r.assists,
+    },
+    art,
+    Math.round(fitW * SCALE)
   );
-
-  // Separator Line
-  const lineW = isTemplate1 ? w * 0.76 : w * 0.72;
-  const lineGrad = ctx.createLinearGradient(x + (w - lineW) / 2, lineY, x + (w + lineW) / 2, lineY);
-  lineGrad.addColorStop(0, "transparent");
-  lineGrad.addColorStop(0.2, "rgba(255, 215, 0, 0.75)");
-  lineGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.95)");
-  lineGrad.addColorStop(0.8, "rgba(255, 215, 0, 0.75)");
-  lineGrad.addColorStop(1, "transparent");
-  ctx.fillStyle = lineGrad;
-  ctx.fillRect(x + (w - lineW) / 2, lineY, lineW, 1.5);
-
-  // Bottom Stats: Goals & Assists
-  const goalsX = x + w * 0.35;
-  const assistsX = x + w * 0.65;
-
-  strokeTextWithShadow(String(r.goals), goalsX, statsY, `900 ${Math.round(w * 0.08)}px ${FONT}`, "#ffffff");
-  strokeTextWithShadow("GOLS", goalsX, statsY + w * 0.085, `800 ${Math.round(w * 0.04)}px ${FONT}`, "#f1f5f9");
-
-  strokeTextWithShadow(String(r.assists), assistsX, statsY, `900 ${Math.round(w * 0.08)}px ${FONT}`, "#ffffff");
-  strokeTextWithShadow("ASSISTS", assistsX, statsY + w * 0.085, `800 ${Math.round(w * 0.04)}px ${FONT}`, "#f1f5f9");
-
+  ctx.drawImage(card, x + (w - fitW) / 2, y + (h - fitH) / 2, fitW, fitH);
   ctx.textAlign = "left";
-  ctx.restore();
 
   // Border outline around card
   rrect(ctx, x, y, w, h, isChampion ? 16 : 14);
@@ -460,14 +397,8 @@ export async function drawRankingImage(
 ) {
   await fontsReady();
 
-  // Load photos or template fallbacks for all players
-  const loadedImages = await Promise.all(
-    rows.map((r) => {
-      const template = getTemplate(r.card_template || "card-template");
-      const url = r.photo_url || template.fullUrl;
-      return loadImage(url);
-    })
-  );
+  // Photos and template art of every player (cached by the browser)
+  const arts = await Promise.all(rows.map((r) => loadCardArt(r.card_template, r.photo_url)));
 
   const T = PALETTES[theme];
   const margin = 40;
@@ -515,7 +446,7 @@ export async function drawRankingImage(
   drawCanvasCard(
     ctx,
     rows[0],
-    loadedImages[0],
+    arts[0],
     firstX,
     firstRowY,
     topCardW,
@@ -549,7 +480,7 @@ export async function drawRankingImage(
     drawCanvasCard(
       ctx,
       rows[idx],
-      loadedImages[idx],
+      arts[idx],
       cardX,
       cardY,
       otherCardW,
@@ -592,6 +523,145 @@ export interface SingleCardExportData {
   templateId?: string | null;
 }
 
+interface CardArt {
+  template: CardTemplate;
+  full: HTMLImageElement | null; // template art, also the shield mask
+  empty: HTMLImageElement | null; // golden frame drawn on top
+  photo: HTMLImageElement | null; // player's card photo (replaces the art)
+}
+
+async function loadCardArt(templateId: string | null | undefined, photoUrl: string | null | undefined): Promise<CardArt> {
+  const template = getTemplate(templateId || "card-template");
+  const [full, empty, photo] = await Promise.all([
+    loadImage(template.fullUrl),
+    loadImage(template.emptyUrl),
+    photoUrl ? loadImage(photoUrl) : Promise.resolve(null),
+  ]);
+  return { template, full, empty, photo };
+}
+
+/** The player card as exported alone (proportions of PlayerCard.tsx), on its
+ * own canvas ``cardW`` pixels wide; the height follows the template. Shared by
+ * the single-card poster and the ranking, so both place the numbers alike. */
+function renderCard(card: SingleCardExportData, art: CardArt, cardW: number): HTMLCanvasElement {
+  const { template, full: fullImg, empty: emptyImg, photo: playerImg } = art;
+  const cardH = Math.round(cardW / (template.width / template.height));
+  const k = cardW / 700; // fixed sizes below were tuned on the 700px poster card
+
+  const cardCanvas = document.createElement("canvas");
+  cardCanvas.width = cardW;
+  cardCanvas.height = cardH;
+  const cardCtx = cardCanvas.getContext("2d")!;
+  cardCtx.textBaseline = "top";
+
+  // A. Draw base image (player photo or fallback template full)
+  if (playerImg) {
+    cardCtx.drawImage(playerImg, 0, 0, cardW, cardH);
+  } else if (fullImg) {
+    cardCtx.drawImage(fullImg, 0, 0, cardW, cardH);
+  }
+
+  // B. Text styling helper with crisp outline and contrast drop shadow
+  const strokeCardText = (text: string, tx: number, ty: number, font: string, fill: string) => {
+    cardCtx.save();
+    cardCtx.font = font;
+    cardCtx.shadowColor = "rgba(0, 0, 0, 0.95)";
+    cardCtx.shadowBlur = 8 * k;
+    cardCtx.shadowOffsetY = 2 * k;
+    cardCtx.strokeStyle = "#000000";
+    cardCtx.lineWidth = 4 * k;
+    cardCtx.lineJoin = "round";
+    cardCtx.strokeText(text, tx, ty);
+    cardCtx.fillStyle = fill;
+    cardCtx.fillText(text, tx, ty);
+    cardCtx.restore();
+  };
+
+  // C. Top Left: Score, PTS, Position (Proportional to PlayerCard.tsx)
+  const isTemplate1 = template.id === "card-template";
+  const scoreStr = String(card.score ?? 0);
+  const isThreeDigits = scoreStr.length >= 3;
+  const scoreFontSize = isThreeDigits ? Math.round(cardW * 0.095) : Math.round(cardW * 0.12);
+  const ptsFontSize = Math.round(cardW * 0.033);
+  const posFontSize = Math.round(cardW * 0.044);
+
+  // Template 1 is 0.245; Template 2 is 0.260 for balanced centering within the upper shield crest
+  const scoreX = isTemplate1 ? cardW * 0.245 : cardW * 0.26;
+  const clusterTop = isTemplate1 ? cardH * 0.19 : cardH * 0.20;
+
+  cardCtx.textAlign = "center";
+  cardCtx.textBaseline = "top";
+
+  // Score
+  strokeCardText(scoreStr, scoreX, clusterTop, `900 ${scoreFontSize}px ${FONT}`, "#ffffff");
+
+  // PTS
+  const ptsY = clusterTop + scoreFontSize * 0.96;
+  strokeCardText("PTS", scoreX, ptsY, `800 ${ptsFontSize}px ${FONT}`, "#fcd34d");
+
+  // Position
+  const posStr = (card.position || "MEI").toUpperCase();
+  const posY = ptsY + ptsFontSize * 1.35;
+  strokeCardText(posStr, scoreX, posY, `900 ${posFontSize}px ${FONT}`, "#ffffff");
+
+  // Template 2 name is placed at 0.635 (matching PlayerCard.tsx nameTop at 63.5%) nicely above line at 0.69
+  const nameY = isTemplate1 ? cardH * 0.67 : cardH * 0.635;
+  const lineY = isTemplate1 ? cardH * 0.735 : cardH * 0.69;
+  const statsY = isTemplate1 ? cardH * 0.765 : cardH * 0.72;
+
+  const cleanName = card.name.toUpperCase();
+  const cqw = getNameCqw(card.name);
+  const nameFontSize = Math.max(16 * k, Math.round(cardW * (cqw / 100)));
+
+  // Draw Player Name
+  cardCtx.textAlign = "center";
+  cardCtx.font = `900 ${nameFontSize}px ${FONT}`;
+  strokeCardText(
+    truncate(cardCtx, cleanName, cardW * 0.8),
+    cardW / 2,
+    nameY,
+    `900 ${nameFontSize}px ${FONT}`,
+    "#ffffff"
+  );
+
+  // Bottom Stats sizing
+  const goalsX = cardW * 0.35;
+  const assistsX = cardW * 0.65;
+  const statsNumSize = Math.round(cardW * 0.092);
+  const statsLabelSize = Math.round(cardW * 0.038);
+
+  // Draw Separator Line
+  const lineW = isTemplate1 ? cardW * 0.76 : cardW * 0.72;
+  const lineGrad = cardCtx.createLinearGradient((cardW - lineW) / 2, lineY, (cardW + lineW) / 2, lineY);
+  lineGrad.addColorStop(0, "transparent");
+  lineGrad.addColorStop(0.2, "rgba(255, 215, 0, 0.75)");
+  lineGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.95)");
+  lineGrad.addColorStop(0.8, "rgba(255, 215, 0, 0.75)");
+  lineGrad.addColorStop(1, "transparent");
+  cardCtx.fillStyle = lineGrad;
+  cardCtx.fillRect((cardW - lineW) / 2, lineY, lineW, 2 * k);
+
+  // Draw Bottom Stats: Goals & Assists
+  strokeCardText(String(card.goals ?? 0), goalsX, statsY, `900 ${statsNumSize}px ${FONT}`, "#ffffff");
+  strokeCardText("GOLS", goalsX, statsY + statsNumSize * 1.05, `800 ${statsLabelSize}px ${FONT}`, "#f1f5f9");
+
+  strokeCardText(String(card.assists ?? 0), assistsX, statsY, `900 ${statsNumSize}px ${FONT}`, "#ffffff");
+  strokeCardText("ASSIST.", assistsX, statsY + statsNumSize * 1.05, `800 ${statsLabelSize}px ${FONT}`, "#f1f5f9");
+
+  // E. Clip card to shield mask
+  if (fullImg) {
+    cardCtx.globalCompositeOperation = "destination-in";
+    cardCtx.drawImage(fullImg, 0, 0, cardW, cardH);
+    cardCtx.globalCompositeOperation = "source-over";
+  }
+
+  // F. Draw empty border on top so the golden edge is razor sharp
+  if (emptyImg) {
+    cardCtx.drawImage(emptyImg, 0, 0, cardW, cardH);
+  }
+  return cardCanvas;
+}
+
 export async function drawSingleCardPoster(
   canvas: HTMLCanvasElement,
   card: SingleCardExportData,
@@ -600,10 +670,8 @@ export async function drawSingleCardPoster(
 ) {
   await fontsReady();
 
-  const template = getTemplate(card.templateId || "card-template");
-  const fullImg = await loadImage(template.fullUrl);
-  const emptyImg = await loadImage(template.emptyUrl);
-  const playerImg = card.photoUrl ? await loadImage(card.photoUrl) : null;
+  const art = await loadCardArt(card.templateId, card.photoUrl);
+  const { template } = art;
 
   // Poster dimensions: 1040 x 1600 (matches card-idea.jpg standard)
   const W = 1040;
@@ -675,117 +743,8 @@ export async function drawSingleCardPoster(
     (ctx as any).letterSpacing = "0px";
   } catch {}
 
-  // 6. Build card on an offscreen canvas
-  const cardCanvas = document.createElement("canvas");
-  cardCanvas.width = cardW;
-  cardCanvas.height = cardH;
-  const cardCtx = cardCanvas.getContext("2d")!;
-  cardCtx.textBaseline = "top";
-
-  // A. Draw base image (player photo or fallback template full)
-  if (playerImg) {
-    cardCtx.drawImage(playerImg, 0, 0, cardW, cardH);
-  } else if (fullImg) {
-    cardCtx.drawImage(fullImg, 0, 0, cardW, cardH);
-  }
-
-  // B. Text styling helper with crisp outline and contrast drop shadow
-  const strokeCardText = (text: string, tx: number, ty: number, font: string, fill: string) => {
-    cardCtx.save();
-    cardCtx.font = font;
-    cardCtx.shadowColor = "rgba(0, 0, 0, 0.95)";
-    cardCtx.shadowBlur = 8;
-    cardCtx.shadowOffsetY = 2;
-    cardCtx.strokeStyle = "#000000";
-    cardCtx.lineWidth = 4;
-    cardCtx.lineJoin = "round";
-    cardCtx.strokeText(text, tx, ty);
-    cardCtx.fillStyle = fill;
-    cardCtx.fillText(text, tx, ty);
-    cardCtx.restore();
-  };
-
-  // C. Top Left: Score, PTS, Position (Proportional to PlayerCard.tsx)
-  const isTemplate1 = template.id === "card-template";
-  const scoreStr = String(card.score ?? 0);
-  const isThreeDigits = scoreStr.length >= 3;
-  const scoreFontSize = isThreeDigits ? Math.round(cardW * 0.095) : Math.round(cardW * 0.12);
-  const ptsFontSize = Math.round(cardW * 0.033);
-  const posFontSize = Math.round(cardW * 0.044);
-
-  // Template 1 is 0.245; Template 2 is 0.260 for balanced centering within the upper shield crest
-  const scoreX = isTemplate1 ? cardW * 0.245 : cardW * 0.26;
-  const clusterTop = isTemplate1 ? cardH * 0.19 : cardH * 0.20;
-
-  cardCtx.textAlign = "center";
-  cardCtx.textBaseline = "top";
-
-  // Score
-  strokeCardText(scoreStr, scoreX, clusterTop, `900 ${scoreFontSize}px ${FONT}`, "#ffffff");
-
-  // PTS
-  const ptsY = clusterTop + scoreFontSize * 0.96;
-  strokeCardText("PTS", scoreX, ptsY, `800 ${ptsFontSize}px ${FONT}`, "#fcd34d");
-
-  // Position
-  const posStr = (card.position || "MEI").toUpperCase();
-  const posY = ptsY + ptsFontSize * 1.35;
-  strokeCardText(posStr, scoreX, posY, `900 ${posFontSize}px ${FONT}`, "#ffffff");
-
-  // Template 2 name is placed at 0.635 (matching PlayerCard.tsx nameTop at 63.5%) nicely above line at 0.69
-  const nameY = isTemplate1 ? cardH * 0.67 : cardH * 0.635;
-  const lineY = isTemplate1 ? cardH * 0.735 : cardH * 0.69;
-  const statsY = isTemplate1 ? cardH * 0.765 : cardH * 0.72;
-
-  const cleanName = card.name.toUpperCase();
-  const cqw = getNameCqw(card.name);
-  const nameFontSize = Math.max(16, Math.round(cardW * (cqw / 100)));
-
-  // Draw Player Name
-  cardCtx.textAlign = "center";
-  strokeCardText(
-    truncate(cardCtx, cleanName, cardW * 0.8),
-    cardW / 2,
-    nameY,
-    `900 ${nameFontSize}px ${FONT}`,
-    "#ffffff"
-  );
-
-  // Bottom Stats sizing
-  const goalsX = cardW * 0.35;
-  const assistsX = cardW * 0.65;
-  const statsNumSize = Math.round(cardW * 0.092);
-  const statsLabelSize = Math.round(cardW * 0.038);
-
-  // Draw Separator Line
-  const lineW = isTemplate1 ? cardW * 0.76 : cardW * 0.72;
-  const lineGrad = cardCtx.createLinearGradient((cardW - lineW) / 2, lineY, (cardW + lineW) / 2, lineY);
-  lineGrad.addColorStop(0, "transparent");
-  lineGrad.addColorStop(0.2, "rgba(255, 215, 0, 0.75)");
-  lineGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.95)");
-  lineGrad.addColorStop(0.8, "rgba(255, 215, 0, 0.75)");
-  lineGrad.addColorStop(1, "transparent");
-  cardCtx.fillStyle = lineGrad;
-  cardCtx.fillRect((cardW - lineW) / 2, lineY, lineW, 2);
-
-  // Draw Bottom Stats: Goals & Assists
-  strokeCardText(String(card.goals ?? 0), goalsX, statsY, `900 ${statsNumSize}px ${FONT}`, "#ffffff");
-  strokeCardText("GOLS", goalsX, statsY + statsNumSize * 1.05, `800 ${statsLabelSize}px ${FONT}`, "#f1f5f9");
-
-  strokeCardText(String(card.assists ?? 0), assistsX, statsY, `900 ${statsNumSize}px ${FONT}`, "#ffffff");
-  strokeCardText("ASSIST.", assistsX, statsY + statsNumSize * 1.05, `800 ${statsLabelSize}px ${FONT}`, "#f1f5f9");
-
-  // E. Clip card to shield mask
-  if (fullImg) {
-    cardCtx.globalCompositeOperation = "destination-in";
-    cardCtx.drawImage(fullImg, 0, 0, cardW, cardH);
-    cardCtx.globalCompositeOperation = "source-over";
-  }
-
-  // F. Draw empty border on top so the golden edge is razor sharp
-  if (emptyImg) {
-    cardCtx.drawImage(emptyImg, 0, 0, cardW, cardH);
-  }
+  // 6. The card itself (shared with the ranking image)
+  const cardCanvas = renderCard(card, art, cardW);
 
   // G. Draw card with drop shadow onto poster
   ctx.save();
