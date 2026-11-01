@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChartColumn,
+  FileUp,
   Footprints,
   Goal,
   Info,
@@ -37,8 +38,9 @@ import {
 } from "../../components/ui";
 import { drawRankingImage, type ImageTheme } from "../../lib/exportImage";
 import { RANKING_FORMULA, rankingText } from "../../lib/exportText";
-import { errorMessage } from "../../lib/format";
+import { errorMessage, plural } from "../../lib/format";
 import type { EventCtx } from "../EventPage";
+import { ImportStatsModal } from "./ImportStatsModal";
 
 const PODIUM_CONFIG = [
   { ring: "#eab308", label: "1º Lugar — Campeão", icon: "🏆", bg: "from-amber-500/15 via-amber-500/5 to-transparent", border: "border-amber-500/40" },
@@ -57,6 +59,7 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [quickEdit, setQuickEdit] = useState(false);
   const [savingPlayerId, setSavingPlayerId] = useState<number | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -129,6 +132,12 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
 
         <div className="flex flex-wrap items-center gap-2">
           {hasNoMatches && isStaff && (
+            <Button size="sm" variant="secondary" icon={FileUp} onClick={() => setImporting(true)}>
+              Importar
+            </Button>
+          )}
+
+          {hasNoMatches && isStaff && (
             <Button
               size="sm"
               variant={viewMode === "table" && quickEdit ? "primary" : "secondary"}
@@ -190,7 +199,7 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
         <Alert tone="info">
           Nenhuma partida foi registrada ainda para este evento.{" "}
           {isStaff
-            ? "Como administrador/moderador, você pode definir as estatísticas dos jogadores clicando em 'Editar' nos cards."
+            ? "Como administrador/moderador, você pode definir as estatísticas dos jogadores clicando em 'Editar' nos cards ou importá-las de uma lista ou planilha em 'Importar'."
             : "Você pode registrar suas estatísticas na aba 'Seu Card'."}
         </Alert>
       )}
@@ -545,6 +554,19 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
           {/* Export Ranking Panel */}
           <ExportPanel title="Exportar ranking em imagem" filename="ranking" getText={getText} renderImage={renderImage} />
         </>
+      )}
+
+      {hasNoMatches && isStaff && (
+        <ImportStatsModal
+          open={importing}
+          ctx={ctx}
+          onClose={() => setImporting(false)}
+          onImported={(ranking, count) => {
+            setImporting(false);
+            setRows(ranking);
+            toast(`Estatísticas importadas: ${plural(count, "jogador", "jogadores")}`);
+          }}
+        />
       )}
 
       {/* Enhanced Edit Player Modal for Admins & Moderators */}

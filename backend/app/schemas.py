@@ -464,3 +464,29 @@ class ManualStatUpdate(BaseModel):
     goals: int = Field(default=0, ge=0, le=100)
     assists: int = Field(default=0, ge=0, le=100)
 
+
+class StatImportRow(BaseModel):
+    input: str  # name as written in the list
+    goals: int
+    assists: int
+    error: Optional[str] = None  # line not understood: ignored
+    # How the name matched the group's players (None when the line has an error).
+    status: Optional[Literal["matched", "similar", "ambiguous", "not_found", "duplicate"]] = None
+    player_id: Optional[int] = None
+    candidates: list[NameCandidate] = []
+
+
+class StatImportPreview(BaseModel):
+    rows: list[StatImportRow]
+
+
+class StatImportItem(ManualStatUpdate):
+    player_id: int
+
+
+class StatImportApply(BaseModel):
+    # update: only the listed players change | add: summed to the current
+    # numbers | replace: the event's stats become exactly the list
+    mode: Literal["update", "add", "replace"] = "update"
+    stats: list[StatImportItem] = Field(min_length=1)
+

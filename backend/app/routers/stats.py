@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_event, require_event_membership
+from ..deps import get_event, require_event_membership, require_event_staff
 from ..models import (
     STAFF_ROLES,
     Event,
@@ -14,28 +14,31 @@ from ..models import (
     Player,
     Team,
 )
-from ..schemas import ManualStatUpdate, RankingRow
+from ..schemas import (
+    ManualStatUpdate,
+    RankingRow,
+    StatImportApply,
+    StatImportPreview,
+    StatImportRow,
+)
 from ..services.event_state import active_teams
+from ..services.import_stats import MAX_VALUE, parse_stats
+from ..services.name_match import match_names
 from ..services.ranking import raw_points, scale
 
 router = APIRouter(prefix="/events/{event_id}", tags=["stats"])
 
 
-@router.get("/stats", response_model=list[RankingRow])
-def event_ranking(
-    _m: GroupMembership = Depends(require_event_membership),
-    event: Event = Depends(get_event),
-    db: Session = Depends(get_db),
-):
-    """Per-player ranking of the event (goals, assists, 0-100 score). Counts
-    every match of the event, including the one in progress; players who left
-    their team keep their numbers.
-    If no matches exist yet, loads from manual event statistics."""
+def _team_of(db: Session, event: Event) -> dict[int, Team]:
     team_of: dict[int, Team] = {}
     for team in active_teams(db, event.id):
         for member in team.members:
             team_of[member.player_id] = team
+    return team_of
 
+
+def _ranking(db: Session, event: Event) -> list[RankingRow]:
+    team_of = _team_of(db, event)
     match_count = db.query(Match).filter(Match.event_id == event.id).count()
     if match_count > 0:
         totals = {
@@ -93,6 +96,27 @@ def event_ranking(
     return rows
 
 
+def _ensure_no_matches(db: Session, event: Event) -> None:
+    if db.query(Match).filter(Match.event_id == event.id).count() > 0:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Não é permitido alterar estatísticas manuais quando já existem partidas cadastradas no evento.",
+        )
+
+
+@router.get("/stats", response_model=list[RankingRow])
+def event_ranking(
+    _m: GroupMembership = Depends(require_event_membership),
+    event: Event = Depends(get_event),
+    db: Session = Depends(get_db),
+):
+    """Per-player ranking of the event (goals, assists, 0-100 score). Counts
+    every match of the event, including the one in progress; players who left
+    their team keep their numbers.
+    If no matches exist yet, loads from manual event statistics."""
+    return _ranking(db, event)
+
+
 @router.put("/stats/{player_id}", response_model=RankingRow)
 def update_manual_stat(
     player_id: int,
@@ -104,12 +128,7 @@ def update_manual_stat(
     """Allows updating player stats (goals, assists) manually ONLY when no matches are registered.
     Regular members can only update their own linked player.
     Admins and moderators can update any player in the group."""
-    match_count = db.query(Match).filter(Match.event_id == event.id).count()
-    if match_count > 0:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Não é permitido alterar estatísticas manuais quando já existem partidas cadastradas no evento.",
-        )
+    _ensure_no_matches(db, event)
 
     is_staff = membership.role in STAFF_ROLES
     is_self = membership.player_id == player_id
@@ -143,13 +162,8 @@ def update_manual_stat(
 
     db.commit()
 
-    team_of: dict[int, Team] = {}
-    for team in active_teams(db, event.id):
-        for member in team.members:
-            team_of[member.player_id] = team
-
     pts = raw_points(stat.goals, stat.assists, player.position)
-    team = team_of.get(player.id)
+    team = _team_of(db, event).get(player.id)
     return RankingRow(
         rank=1,
         player_id=player.id,
@@ -166,3 +180,82 @@ def update_manual_stat(
         score=pts,
     )
 
+
+@router.post("/stats/import", response_model=StatImportPreview)
+def preview_stats_import(
+    _m: GroupMembership = Depends(require_event_staff),
+    event: Event = Depends(get_event),
+    db: Session = Depends(get_db),
+    file: UploadFile | None = File(default=None),
+    text: str | None = Form(default=None),
+):
+    """Read goals and assists from a pasted list or a .txt/.csv/.xls/.xlsx
+    file and resolve the names to the group's players. Nothing is written yet
+    (the client confirms via /stats/bulk). Same roles as editing the stats of
+    other players, and only while the event has no matches."""
+    _ensure_no_matches(db, event)
+    try:
+        parsed = parse_stats(file.filename if file else None, file.file.read() if file else None, text)
+    except Exception as exc:  # malformed spreadsheet, bad encoding, etc.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Não foi possível ler o arquivo: {exc}")
+    valid = [r for r in parsed if not r.error]
+    players = db.query(Player).filter_by(group_id=event.group_id).all()
+    matched = iter(match_names([r.name for r in valid], players))
+    rows = []
+    for r in parsed:
+        match = None if r.error else next(matched)
+        rows.append(
+            StatImportRow(
+                input=r.name,
+                goals=r.goals,
+                assists=r.assists,
+                error=r.error,
+                status=match.status if match else None,
+                player_id=match.player_id if match else None,
+                candidates=match.candidates if match else [],
+            )
+        )
+    return StatImportPreview(rows=rows)
+
+
+@router.post("/stats/bulk", response_model=list[RankingRow])
+def import_stats(
+    payload: StatImportApply,
+    _m: GroupMembership = Depends(require_event_staff),
+    event: Event = Depends(get_event),
+    db: Session = Depends(get_db),
+):
+    """Confirm a stats import (see StatImportApply.mode); returns the ranking."""
+    _ensure_no_matches(db, event)
+    ids = [item.player_id for item in payload.stats]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Jogador repetido na importação.")
+    found = {
+        pid
+        for (pid,) in db.query(Player.id).filter(
+            Player.id.in_(ids), Player.group_id == event.group_id
+        )
+    }
+    if found != set(ids):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Jogador não encontrado neste grupo.")
+
+    current = {
+        s.player_id: s
+        for s in db.query(EventManualStat).filter(EventManualStat.event_id == event.id)
+    }
+    if payload.mode == "replace":
+        for player_id, stat in current.items():
+            if player_id not in found:
+                db.delete(stat)
+    for item in payload.stats:
+        stat = current.get(item.player_id)
+        if stat is None:
+            stat = EventManualStat(event_id=event.id, player_id=item.player_id, goals=0, assists=0)
+            db.add(stat)
+        if payload.mode == "add":
+            stat.goals = min(stat.goals + item.goals, MAX_VALUE)
+            stat.assists = min(stat.assists + item.assists, MAX_VALUE)
+        else:
+            stat.goals, stat.assists = item.goals, item.assists
+    db.commit()
+    return _ranking(db, event)

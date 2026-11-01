@@ -123,25 +123,23 @@ def parse_text(text: str, rng: SkillRange | None = None) -> list[ParsedRow]:
 # ---------------------------------------------------------------------------
 # Tabular formats (csv / xlsx / xls)
 # ---------------------------------------------------------------------------
-def _table_columns(table: list[list]) -> tuple[dict[str, Optional[int]], list[list]]:
-    """Locate the name/skill/position columns; returns them and the data rows."""
+def table_columns(
+    table: list[list], aliases: dict[str, set[str]] = HEADER_ALIASES
+) -> tuple[dict[str, Optional[int]], list[list]]:
+    """Locate each field's column by its header ``aliases``; returns them and
+    the data rows. Without a recognizable header the columns follow the order
+    of ``aliases`` (name, skill, position for rosters)."""
     header = [_norm(cell) for cell in table[0]]
-    columns: dict[str, Optional[int]] = {"name": None, "skill": None, "position": None}
+    columns: dict[str, Optional[int]] = dict.fromkeys(aliases)
     for index, cell in enumerate(header):
-        for field, aliases in HEADER_ALIASES.items():
-            if cell in aliases and columns[field] is None:
+        for field, names in aliases.items():
+            if cell in names and columns[field] is None:
                 columns[field] = index
 
     if any(v is not None for v in columns.values()):
         return columns, table[1:]
-    # No recognizable header: assume order name, skill, position.
     width = len(table[0])
-    columns = {
-        "name": 0,
-        "skill": 1 if width > 1 else None,
-        "position": 2 if width > 2 else None,
-    }
-    return columns, table
+    return {field: i if i < width else None for i, field in enumerate(aliases)}, table
 
 
 def _clean_table(table: list[list]) -> list[list]:
@@ -153,7 +151,7 @@ def _clean_table(table: list[list]) -> list[list]:
     ]
 
 
-def _cell(row, idx):
+def table_cell(row, idx):
     if idx is None or idx >= len(row):
         return None
     value = row[idx]
@@ -164,12 +162,12 @@ def _rows_from_table(table: list[list], rng: SkillRange) -> list[ParsedRow]:
     table = _clean_table(table)
     if not table:
         return []
-    columns, data = _table_columns(table)
+    columns, data = table_columns(table)
     return [
         _make_row(
-            _cell(row, columns["name"]),
-            _cell(row, columns["skill"]),
-            _cell(row, columns["position"]),
+            table_cell(row, columns["name"]),
+            table_cell(row, columns["skill"]),
+            table_cell(row, columns["position"]),
             rng,
         )
         for row in data
@@ -216,6 +214,15 @@ def parse_xls(content: bytes, rng: SkillRange | None = None) -> list[ParsedRow]:
 
 def _extension(filename: Optional[str]) -> str:
     return filename.rsplit(".", 1)[-1].lower() if filename and "." in filename else ""
+
+
+_TABLE_READERS = {"csv": _csv_table, "xlsx": _xlsx_table, "xlsm": _xlsx_table, "xls": _xls_table}
+
+
+def read_table(filename: Optional[str], content: bytes) -> Optional[list[list]]:
+    """Non-empty rows of a .csv/.xls/.xlsx upload; None for other (text) files."""
+    reader = _TABLE_READERS.get(_extension(filename))
+    return _clean_table(reader(content)) if reader else None
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +340,8 @@ def _is_noise(ch: str) -> bool:
     )
 
 
-def _clean_name(raw: str) -> str:
+def clean_name(raw: str) -> str:
+    """A name from a pasted list: no numbering, emojis or trailing nota."""
     text = unicodedata.normalize("NFC", raw)
     text = "".join(" " if _is_noise(ch) and ch != "\t" else ch for ch in text)
     text = _LIST_MARKER.sub("", text, count=1)
@@ -348,17 +356,15 @@ def parse_names(
     if text and text.strip():
         lines = text.splitlines()
     elif content is not None and filename:
-        ext = _extension(filename)
-        if ext in ("csv", "xlsx", "xlsm", "xls"):
-            reader = {"csv": _csv_table, "xls": _xls_table}.get(ext, _xlsx_table)
-            table = _clean_table(reader(content))
-            if not table:
-                return []
-            columns, data = _table_columns(table)
-            lines = [_cell(row, columns["name"]) or "" for row in data]
-        else:
+        table = read_table(filename, content)
+        if table is None:
             lines = content.decode("utf-8-sig", errors="replace").splitlines()
+        elif not table:
+            return []
+        else:
+            columns, data = table_columns(table)
+            lines = [table_cell(row, columns["name"]) or "" for row in data]
     else:
         return []
-    names = [_clean_name(line) for line in lines]
+    names = [clean_name(line) for line in lines]
     return [n for n in names if n]

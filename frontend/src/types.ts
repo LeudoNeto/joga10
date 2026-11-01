@@ -152,6 +152,20 @@ export interface NameMatchResult {
   pending: number;
 }
 
+/** A line of an imported stats list (event without matches). */
+export interface StatImportRow {
+  input: string;
+  goals: number;
+  assists: number;
+  error: string | null; // line not understood: ignored
+  status: NameMatchStatus | null; // null when the line has an error
+  player_id: number | null;
+  candidates: { id: number; name: string }[];
+}
+
+/** update: only the listed players · add: summed to the current · replace: the list becomes the stats */
+export type StatImportMode = "update" | "add" | "replace";
+
 export type DrawMode = "random" | "heuristic" | "optimal";
 
 export interface EventItem {
