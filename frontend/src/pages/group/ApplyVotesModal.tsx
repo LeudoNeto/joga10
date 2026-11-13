@@ -43,10 +43,12 @@ export function ApplyVotesModal({
     api
       .get<VoteSummary>(`/groups/${group.id}/votes/summary`)
       .then((s) => {
-        setSummary(s);
+        // Inactive players are left out of the voting, so out of the review too.
+        const players = s.players.filter((r) => r.active);
+        setSummary({ ...s, players });
         setState(
           Object.fromEntries(
-            s.players.map((r) => [r.player_id, { choice: hasSuggestion(r) ? "vote" : "keep", manual: "" }])
+            players.map((r) => [r.player_id, { choice: hasSuggestion(r) ? "vote" : "keep", manual: "" }])
           )
         );
       })
@@ -182,7 +184,7 @@ export function ApplyVotesModal({
               </Alert>
             )}
             {all.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted">Nenhum jogador cadastrado.</p>
+              <p className="py-6 text-center text-sm text-muted">Nenhum jogador ativo.</p>
             ) : (
               <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
                 {rowsOf(suggested, "Sugestões da votação")}
@@ -219,12 +221,9 @@ function ApplyRow({
   return (
     <div className={cx("space-y-2 px-3 py-2.5 transition-colors", changed && "bg-brand-600/[0.06]")}>
       <div className="flex items-center gap-3">
-        <Avatar name={r.name} src={r.photo_url} size={36} className={r.active ? "" : "opacity-50 grayscale"} />
+        <Avatar name={r.name} src={r.photo_url} size={36} />
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 text-sm font-medium text-fg">
-            <span className="truncate">{r.name}</span>
-            {!r.active && <Badge>inativo</Badge>}
-          </p>
+          <p className="truncate text-sm font-medium text-fg">{r.name}</p>
           <p className="truncate text-xs text-subtle">
             {r.vote_count ? plural(r.vote_count, "voto", "votos") : "sem votos"}
             {r.unknown_count > 0 && ` · ${r.unknown_count} não ${r.unknown_count === 1 ? "sabe" : "sabem"}`}

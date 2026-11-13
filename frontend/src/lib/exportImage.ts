@@ -1,7 +1,7 @@
 /* PNG exports drawn on a canvas, in a light and a dark variant (port of
    team-balance's gerarImagem, extended with a ranking card). */
 import type { EventItem, RankingRow } from "../types";
-import { formatDate, fmt2, readableOn } from "./format";
+import { formatDate, fmt2, nameHash, readableOn } from "./format";
 import type { ExportTeam } from "./exportText";
 import { RANKING_FORMULA } from "./exportText";
 import { getTemplate, getNameCqw, type CardTemplate } from "./cards";
@@ -124,6 +124,78 @@ function brand(ctx: CanvasRenderingContext2D, T: Palette, W: number, H: number) 
   ctx.fillText(tail, x + wHead, y);
 }
 
+// Avatar colours as on screen (AVATAR_COLORS in ui.tsx): the -500 tone at 20%
+// behind the initials, inked with -700 (light) or -300 (dark).
+const AVATAR_INKS: [bg: string, light: string, dark: string][] = [
+  ["#f43f5e", "#e11d48", "#fda4af"], // rose
+  ["#0ea5e9", "#0369a1", "#7dd3fc"], // sky
+  ["#10b981", "#047857", "#6ee7b7"], // emerald
+  ["#f59e0b", "#b45309", "#fcd34d"], // amber
+  ["#8b5cf6", "#6d28d9", "#c4b5fd"], // violet
+  ["#14b8a6", "#0f766e", "#5eead4"], // teal
+  ["#d946ef", "#a21caf", "#f0abfc"], // fuchsia
+  ["#f97316", "#c2410c", "#fdba74"], // orange
+];
+
+/** Round player photo (cropped like object-cover), or the initials avatar. */
+function drawAvatar(
+  ctx: CanvasRenderingContext2D,
+  T: Palette,
+  theme: ImageTheme,
+  name: string,
+  img: HTMLImageElement | null,
+  cx: number,
+  cy: number,
+  r: number
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  if (img) {
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2;
+    ctx.drawImage(img, sx, sy, side, side, cx - r, cy - r, 2 * r, 2 * r);
+  } else {
+    const [bg, light, dark] = AVATAR_INKS[nameHash(name) % AVATAR_INKS.length];
+    ctx.fillStyle = T.card;
+    ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = bg;
+    ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = theme === "dark" ? dark : light;
+    ctx.font = `700 ${Math.max(10, Math.round(2 * r * 0.36))}px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(initialsOf(name), cx, cy + 1);
+  }
+  ctx.restore();
+}
+
+/** Dashed "SUP" circle standing for a suplente, as in the team card. */
+function drawSubstituteMark(ctx: CanvasRenderingContext2D, T: Palette, cx: number, cy: number, r: number) {
+  ctx.save();
+  ctx.strokeStyle = T.substitute;
+  ctx.lineWidth = 1.25;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = T.substitute;
+  ctx.font = `700 ${Math.round(r * 0.7)}px ${FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("SUP", cx, cy + 1);
+  ctx.restore();
+}
+
+async function loadPhotos(urls: (string | null | undefined)[]) {
+  const unique = [...new Set(urls.filter((u): u is string => !!u))];
+  const images = await Promise.all(unique.map(loadImage));
+  return new Map(unique.map((u, i) => [u, images[i]]));
+}
+
 // ---------------------------------------------------------------------------
 // Teams
 // ---------------------------------------------------------------------------
@@ -133,6 +205,7 @@ export interface TeamsImage {
   algorithm: string | null;
   spreadCents: number;
   showSkills: boolean;
+  showPhotos: boolean;
 }
 
 export async function drawTeamsImage(canvas: HTMLCanvasElement, data: TeamsImage, theme: ImageTheme) {
@@ -145,7 +218,9 @@ export async function drawTeamsImage(canvas: HTMLCanvasElement, data: TeamsImage
   let maxRows = 1;
   for (const t of teams) maxRows = Math.max(maxRows, t.players.length + t.substitutes.length);
 
-  const margin = 40, gap = 24, cardW = 300, headerH = 58, rowH = 34;
+  const photos = data.showPhotos ? await loadPhotos(teams.flatMap((t) => t.players.map((p) => p.photo_url))) : null;
+  const margin = 40, gap = 24, cardW = 300, headerH = 58, rowH = photos ? 40 : 34;
+  const avatarR = 15;
   const bodyH = maxRows * rowH + 12;
   const footerH = data.showSkills ? 46 : 8;
   const cardH = headerH + bodyH + footerH;
@@ -201,23 +276,31 @@ export async function drawTeamsImage(canvas: HTMLCanvasElement, data: TeamsImage
       ...team.players
         .slice()
         .sort((a, b) => b.skill - a.skill)
-        .map((p) => ({ name: p.name, value: fmt2(p.skill), sub: false })),
-      ...team.substitutes.map((cents) => ({ name: "Suplente", value: fmt2(cents / 100), sub: true })),
+        .map((p) => ({ name: p.name, value: fmt2(p.skill), sub: false, photo: p.photo_url })),
+      ...team.substitutes.map((cents) => ({ name: "Suplente", value: fmt2(cents / 100), sub: true, photo: null })),
     ];
     rows.forEach((p, i) => {
       if (i % 2 === 1) {
         ctx.fillStyle = T.zebra;
         ctx.fillRect(x + 6, py - 3, cardW - 12, rowH - 2);
       }
+      const textY = py + (rowH - 34) / 2 + 4; // centred in the zebra band
+      let nameX = x + 18;
+      if (photos) {
+        const cx = nameX + avatarR, cy = py + rowH / 2 - 4;
+        if (p.sub) drawSubstituteMark(ctx, T, cx, cy, avatarR);
+        else drawAvatar(ctx, T, theme, p.name, (p.photo && photos.get(p.photo)) || null, cx, cy, avatarR);
+        nameX += 2 * avatarR + 10;
+      }
       ctx.fillStyle = p.sub ? T.substitute : T.name;
       let wValue = 0;
       if (data.showSkills) {
         ctx.font = `700 17px ${FONT}`;
         wValue = ctx.measureText(p.value).width;
-        ctx.fillText(p.value, x + cardW - 18 - wValue, py + 4);
+        ctx.fillText(p.value, x + cardW - 18 - wValue, textY);
       }
       ctx.font = p.sub ? `italic 400 17px ${FONT}` : `500 17px ${FONT}`;
-      ctx.fillText(truncate(ctx, p.name, cardW - 46 - wValue), x + 18, py + 4);
+      ctx.fillText(truncate(ctx, p.name, x + cardW - 28 - wValue - nameX), nameX, textY);
       py += rowH;
     });
 

@@ -20,6 +20,7 @@ export function TeamsTab({ ctx }: { ctx: EventCtx }) {
   const toast = useToast();
   const [editMode, setEditMode] = useState(false);
   const [showSkills, setShowSkills] = useState(true);
+  const [showPhotos, setShowPhotos] = useState(true);
 
   const subs = useMemo(
     () => substitutesFor(teams.map((t) => t.players), event.use_substitutes),
@@ -63,8 +64,9 @@ export function TeamsTab({ ctx }: { ctx: EventCtx }) {
       proven: event.draw_proven,
       spreadCents: spread,
       showSkills,
+      showPhotos,
     }),
-    [event, teams, subs, algorithm, spread, showSkills]
+    [event, teams, subs, algorithm, spread, showSkills, showPhotos]
   );
   const getText = useCallback(() => teamsText(exportData), [exportData]);
   const renderImage = useCallback(
@@ -148,7 +150,17 @@ export function TeamsTab({ ctx }: { ctx: EventCtx }) {
             filename="times"
             getText={getText}
             renderImage={renderImage}
-            options={<Checkbox checked={showSkills} onChange={(e) => setShowSkills(e.target.checked)} label="Incluir notas" />}
+            options={
+              <div className="mr-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Checkbox checked={showSkills} onChange={(e) => setShowSkills(e.target.checked)} label="Incluir notas" />
+                <Checkbox
+                  checked={showPhotos}
+                  onChange={(e) => setShowPhotos(e.target.checked)}
+                  label="Incluir fotos"
+                  title="Mostra a foto de cada jogador na imagem"
+                />
+              </div>
+            }
           />
         </>
       )}

@@ -24,8 +24,8 @@ export function voteSection(vote: PlayerVote | undefined): VoteSection {
   return !vote ? "pending" : vote.skill === null ? "unknown" : "voted";
 }
 
-/** Players the member can vote on (everyone but themselves), grouped by
- * section in display order; active players first, then by name. */
+/** Players the member can vote on (active ones, except themselves), grouped
+ * by section in display order and sorted by name. */
 export function groupForVoting(
   players: Player[],
   votes: Map<number, PlayerVote>,
@@ -33,8 +33,8 @@ export function groupForVoting(
 ): Record<VoteSection, Player[]> {
   const out: Record<VoteSection, Player[]> = { pending: [], unknown: [], voted: [] };
   const sorted = players
-    .filter((p) => p.id !== selfId)
-    .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name, "pt-BR"));
+    .filter((p) => p.active && p.id !== selfId)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   for (const p of sorted) out[voteSection(votes.get(p.id))].push(p);
   return out;
 }

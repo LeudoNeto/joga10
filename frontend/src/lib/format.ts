@@ -45,6 +45,13 @@ export const POSITIONS = [
   "Pivô",
 ];
 
+/** Stable number for a name; picks its avatar colour (screen and image exports). */
+export function nameHash(name: string) {
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return hash;
+}
+
 /** Text color (black/white) readable on top of a team colour. */
 export function readableOn(hex: string | null | undefined) {
   const h = (hex || "#dc2626").replace("#", "");

@@ -23,6 +23,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { nameHash } from "../lib/format";
 import type { Role } from "../types";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
@@ -275,16 +276,19 @@ export function Segmented<T extends string>({
   options,
   className,
   size = "md",
+  label,
 }: {
   value: T;
   onChange: (value: T) => void;
   options: { value: T; label: string; icon?: LucideIcon; disabled?: boolean }[];
   className?: string;
   size?: "sm" | "md";
+  label?: string; // accessible name of the group
 }) {
   return (
     <div
       role="radiogroup"
+      aria-label={label}
       className={cx(
         "inline-flex rounded-xl border border-line bg-surface-2/60 p-1",
         className
@@ -674,8 +678,7 @@ export function Avatar({
 }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  let hash = 0;
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const hash = nameHash(name);
   const style = {
     width: size,
     height: size,

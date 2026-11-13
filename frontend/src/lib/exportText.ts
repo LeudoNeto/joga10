@@ -5,7 +5,7 @@ import { formatDate, fmt2 } from "./format";
 
 export interface ExportTeam {
   name: string;
-  players: { name: string; skill: number }[];
+  players: { name: string; skill: number; photo_url?: string | null }[];
   substitutes: number[]; // suplente notas in cents
 }
 

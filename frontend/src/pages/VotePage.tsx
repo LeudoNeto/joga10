@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   CircleCheck,
   CircleQuestionMark,
+  Image as ImageIcon,
   Save,
   Search,
   SlidersHorizontal,
@@ -12,6 +13,7 @@ import {
   Undo2,
   UserCheck,
   Vote,
+  ZoomIn,
   type LucideIcon,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -27,6 +29,7 @@ import {
   Input,
   PhotoModal,
   SectionTitle,
+  Segmented,
   Select,
   Spinner,
   cx,
@@ -56,6 +59,19 @@ const SECTION_INFO: Record<VoteSection, { title: string; description: string; ic
 /** Votes changed and not saved yet: nota, or null for "Não sei". */
 type Draft = Map<number, number | null>;
 
+/** zoom: small avatar, tap to open it bigger · big: large photo in each row */
+type PhotoMode = "zoom" | "big";
+
+const PHOTO_MODE_KEY = "joga10_vote_photos";
+
+function readPhotoMode(): PhotoMode {
+  try {
+    return localStorage.getItem(PHOTO_MODE_KEY) === "big" ? "big" : "zoom";
+  } catch {
+    return "zoom";
+  }
+}
+
 /** Nota voting: the member rates every other player of the group. The
  * averages become a suggestion that admins may apply to the real notas. */
 export function VotePage() {
@@ -74,6 +90,7 @@ export function VotePage() {
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [viewing, setViewing] = useState<Player | null>(null); // photo opened bigger
+  const [photoMode, setPhotoMode] = useState<PhotoMode>(readPhotoMode);
 
   const load = useCallback(async () => {
     try {
@@ -155,6 +172,15 @@ export function VotePage() {
     }
   }
 
+  function choosePhotoMode(mode: PhotoMode) {
+    setPhotoMode(mode);
+    try {
+      localStorage.setItem(PHOTO_MODE_KEY, mode);
+    } catch {
+      /* storage unavailable: the choice just isn't remembered */
+    }
+  }
+
   async function back() {
     if (
       draft.size &&
@@ -223,13 +249,26 @@ export function VotePage() {
             />
           ) : (
             <>
-              <div className="relative w-full max-w-xs">
-                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar jogador ou posição"
-                  className="pl-9"
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="relative w-full sm:max-w-xs">
+                  <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Buscar jogador ou posição"
+                    className="pl-9"
+                  />
+                </div>
+                <Segmented<PhotoMode>
+                  size="sm"
+                  label="Modo de fotos"
+                  value={photoMode}
+                  onChange={choosePhotoMode}
+                  options={[
+                    { value: "zoom", label: "Tocar para ampliar", icon: ZoomIn },
+                    { value: "big", label: "Fotos grandes", icon: ImageIcon },
+                  ]}
+                  className="w-full sm:w-auto"
                 />
               </div>
 
@@ -255,6 +294,7 @@ export function VotePage() {
                           min={group.min_skill}
                           max={group.max_skill}
                           onChange={(value) => change(p.id, value)}
+                          photoMode={photoMode}
                           onPhoto={() => setViewing(p)}
                         />
                       ))}
@@ -326,6 +366,7 @@ function VoteRow({
   min,
   max,
   onChange,
+  photoMode,
   onPhoto,
 }: {
   player: Player;
@@ -335,8 +376,12 @@ function VoteRow({
   min: number;
   max: number;
   onChange: (value: number | null) => void;
+  photoMode: PhotoMode;
   onPhoto: () => void;
 }) {
+  // Large photo only when there is one to show; otherwise the compact row.
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const big = photoMode === "big" && !!player.photo_url && !photoFailed;
   // "Personalizado" opened by hand; a nota off the buttons keeps it open anyway.
   const [open, setOpen] = useState(false);
   // Text in the custom input while it is being edited (null: shows the nota).
@@ -361,12 +406,123 @@ function VoteRow({
     if (next !== null) onChange(next);
   }
 
-  const avatar = (
-    <Avatar name={player.name} src={player.photo_url} size={40} className={player.active ? "" : "opacity-50 grayscale"} />
+  const avatar = <Avatar name={player.name} src={player.photo_url} size={40} />;
+
+  const heading = (
+    <>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium text-fg">{player.name}</p>
+        <p className="truncate text-xs text-subtle">{player.position || "Sem posição"}</p>
+      </div>
+      <div className="shrink-0 text-right">
+        {value === undefined ? (
+          <span className="text-xs text-subtle">sem nota</span>
+        ) : value === null ? (
+          <Badge tone="amber" icon={CircleQuestionMark}>
+            Não sei
+          </Badge>
+        ) : (
+          <span className="text-xl font-bold tabular text-fg">{fmtSkill(value)}</span>
+        )}
+        {changed && <span className="block text-[11px] font-semibold text-accent">não salvo</span>}
+      </div>
+    </>
   );
 
+  const controls = (
+    <div role="radiogroup" aria-label={`Nota de ${player.name}`} className={cx("space-y-1.5", !big && "sm:pl-[52px]")}>
+      <div className="grid grid-cols-6 gap-1.5 sm:flex sm:flex-wrap">
+        {options.map((o) => {
+          const active = !custom && typeof value === "number" && sameSkill(value, o);
+          return (
+            <button
+              key={o}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => pick(o)}
+              className={cx(chipBase, "px-2", active ? chipOn : chipOff)}
+            >
+              {fmtSkill(o)}
+            </button>
+          );
+        })}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 sm:flex">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={custom}
+          onClick={openCustom}
+          className={cx(chipBase, chipWide, custom ? chipOn : chipOff)}
+        >
+          <SlidersHorizontal size={14} className="shrink-0 max-[359px]:hidden" /> Personalizado
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={value === null}
+          onClick={() => pick(null)}
+          className={cx(
+            chipBase,
+            chipWide,
+            value === null ? "border-amber-500/60 bg-amber-500/15 text-amber-700 dark:text-amber-300" : chipOff
+          )}
+        >
+          <CircleQuestionMark size={14} className="shrink-0 max-[359px]:hidden" /> Não sei
+        </button>
+      </div>
+      {custom && (
+        <div className="flex items-center gap-3 pt-1 sm:max-w-md">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(e) => onChange(Math.round(Number(e.target.value) * 100) / 100)}
+            aria-label={`Nota personalizada de ${player.name}`}
+            className="min-w-0 flex-1 accent-brand-600"
+          />
+          <div className="w-20 shrink-0">
+            <Input
+              inputMode="decimal"
+              value={text ?? fmtSkill(value)}
+              onFocus={(e) => setText(e.target.value)}
+              onChange={(e) => type(e.target.value)}
+              onBlur={() => setText(null)}
+              aria-label={`Nota de ${player.name} (${fmtSkill(min)} a ${fmtSkill(max)})`}
+              aria-invalid={invalid}
+              title={`Entre ${fmtSkill(min)} e ${fmtSkill(max)}`}
+              className={cx("h-9 text-right tabular", invalid && "border-red-500/70 focus:border-red-500")}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const rowClass = cx("px-4 py-3 transition-colors", changed && "bg-brand-600/[0.06]");
+
+  if (big)
+    return (
+      <div className={cx(rowClass, "space-y-3 sm:flex sm:gap-4 sm:space-y-0")}>
+        <img
+          src={player.photo_url ?? undefined}
+          alt={player.name}
+          loading="lazy"
+          onError={() => setPhotoFailed(true)}
+          className="aspect-square w-full rounded-xl bg-surface-2 object-cover sm:w-44 sm:shrink-0"
+        />
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <div className="flex items-center gap-3">{heading}</div>
+          {controls}
+        </div>
+      </div>
+    );
+
   return (
-    <div className={cx("space-y-2.5 px-4 py-3 transition-colors", changed && "bg-brand-600/[0.06]")}>
+    <div className={cx(rowClass, "space-y-2.5")}>
       <div className="flex items-center gap-3">
         {player.photo_url ? (
           <button
@@ -381,96 +537,9 @@ function VoteRow({
         ) : (
           avatar
         )}
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 font-medium text-fg">
-            <span className="truncate">{player.name}</span>
-            {!player.active && <Badge>inativo</Badge>}
-          </p>
-          <p className="truncate text-xs text-subtle">{player.position || "Sem posição"}</p>
-        </div>
-        <div className="shrink-0 text-right">
-          {value === undefined ? (
-            <span className="text-xs text-subtle">sem nota</span>
-          ) : value === null ? (
-            <Badge tone="amber" icon={CircleQuestionMark}>
-              Não sei
-            </Badge>
-          ) : (
-            <span className="text-xl font-bold tabular text-fg">{fmtSkill(value)}</span>
-          )}
-          {changed && <span className="block text-[11px] font-semibold text-accent">não salvo</span>}
-        </div>
+        {heading}
       </div>
-      <div role="radiogroup" aria-label={`Nota de ${player.name}`} className="space-y-1.5 sm:pl-[52px]">
-        <div className="grid grid-cols-6 gap-1.5 sm:flex sm:flex-wrap">
-          {options.map((o) => {
-            const active = !custom && typeof value === "number" && sameSkill(value, o);
-            return (
-              <button
-                key={o}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => pick(o)}
-                className={cx(chipBase, "px-2", active ? chipOn : chipOff)}
-              >
-                {fmtSkill(o)}
-              </button>
-            );
-          })}
-        </div>
-        <div className="grid grid-cols-2 gap-1.5 sm:flex">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={custom}
-            onClick={openCustom}
-            className={cx(chipBase, chipWide, custom ? chipOn : chipOff)}
-          >
-            <SlidersHorizontal size={14} className="shrink-0 max-[359px]:hidden" /> Personalizado
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={value === null}
-            onClick={() => pick(null)}
-            className={cx(
-              chipBase,
-              chipWide,
-              value === null ? "border-amber-500/60 bg-amber-500/15 text-amber-700 dark:text-amber-300" : chipOff
-            )}
-          >
-            <CircleQuestionMark size={14} className="shrink-0 max-[359px]:hidden" /> Não sei
-          </button>
-        </div>
-        {custom && (
-          <div className="flex items-center gap-3 pt-1 sm:max-w-md">
-            <input
-              type="range"
-              min={min}
-              max={max}
-              step={step}
-              value={value}
-              onChange={(e) => onChange(Math.round(Number(e.target.value) * 100) / 100)}
-              aria-label={`Nota personalizada de ${player.name}`}
-              className="min-w-0 flex-1 accent-brand-600"
-            />
-            <div className="w-20 shrink-0">
-              <Input
-                inputMode="decimal"
-                value={text ?? fmtSkill(value)}
-                onFocus={(e) => setText(e.target.value)}
-                onChange={(e) => type(e.target.value)}
-                onBlur={() => setText(null)}
-                aria-label={`Nota de ${player.name} (${fmtSkill(min)} a ${fmtSkill(max)})`}
-                aria-invalid={invalid}
-                title={`Entre ${fmtSkill(min)} e ${fmtSkill(max)}`}
-                className={cx("h-9 text-right tabular", invalid && "border-red-500/70 focus:border-red-500")}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      {controls}
     </div>
   );
 }

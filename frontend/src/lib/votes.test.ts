@@ -22,14 +22,15 @@ describe("groupForVoting", () => {
   const player = (id: number, name: string, active = true) => ({ id, name, active }) as Player;
   const vote = (player_id: number, skill: number | null) => ({ player_id, skill, updated_at: "" }) as PlayerVote;
 
-  it("splits pending, unknown and voted, skipping the voter", () => {
+  it("splits pending, unknown and voted, skipping the voter and inactive players", () => {
     const players = [player(1, "Zé"), player(2, "Ana"), player(3, "Bia", false), player(4, "Caio"), player(5, "Eu")];
     const votes = new Map([
       [4, vote(4, 7)],
       [2, vote(2, null)],
+      [3, vote(3, 5)],
     ]);
     const s = groupForVoting(players, votes, 5);
-    expect(s.pending.map((p) => p.name)).toEqual(["Zé", "Bia"]); // active first
+    expect(s.pending.map((p) => p.name)).toEqual(["Zé"]);
     expect(s.unknown.map((p) => p.name)).toEqual(["Ana"]);
     expect(s.voted.map((p) => p.name)).toEqual(["Caio"]);
   });
