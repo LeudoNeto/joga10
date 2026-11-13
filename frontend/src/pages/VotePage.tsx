@@ -283,7 +283,7 @@ export function VotePage() {
                       title={`${info.title} (${sections[key].length})`}
                       description={info.description}
                     />
-                    <Card className="divide-y divide-line overflow-hidden">
+                    <div className="space-y-3">
                       {list.map((p) => (
                         <VoteRow
                           key={p.id}
@@ -298,7 +298,7 @@ export function VotePage() {
                           onPhoto={() => setViewing(p)}
                         />
                       ))}
-                    </Card>
+                    </div>
                   </section>
                 );
               })}
@@ -502,45 +502,51 @@ function VoteRow({
     </div>
   );
 
-  const rowClass = cx("px-4 py-3 transition-colors", changed && "bg-brand-600/[0.06]");
+  // One card per player, so a photo never looks like it belongs to the next one.
+  const card = cx("overflow-hidden transition-shadow", changed && "ring-1 ring-brand-500/40");
+  const body = cx("p-4 transition-colors", changed && "bg-brand-600/[0.06]");
 
   if (big)
     return (
-      <div className={cx(rowClass, "space-y-3 sm:flex sm:gap-4 sm:space-y-0")}>
-        <img
-          src={player.photo_url ?? undefined}
-          alt={player.name}
-          loading="lazy"
-          onError={() => setPhotoFailed(true)}
-          className="aspect-square w-full rounded-xl bg-surface-2 object-cover sm:w-44 sm:shrink-0"
-        />
-        <div className="min-w-0 flex-1 space-y-2.5">
-          <div className="flex items-center gap-3">{heading}</div>
-          {controls}
+      <Card className={card}>
+        <div className={cx(body, "space-y-3 sm:flex sm:gap-4 sm:space-y-0")}>
+          <img
+            src={player.photo_url ?? undefined}
+            alt={player.name}
+            loading="lazy"
+            onError={() => setPhotoFailed(true)}
+            className="aspect-square w-full rounded-xl bg-surface-2 object-cover sm:w-44 sm:shrink-0"
+          />
+          <div className="min-w-0 flex-1 space-y-2.5">
+            <div className="flex items-center gap-3">{heading}</div>
+            {controls}
+          </div>
         </div>
-      </div>
+      </Card>
     );
 
   return (
-    <div className={cx(rowClass, "space-y-2.5")}>
-      <div className="flex items-center gap-3">
-        {player.photo_url ? (
-          <button
-            type="button"
-            onClick={onPhoto}
-            aria-label={`Ver foto de ${player.name}`}
-            title="Ver foto"
-            className="flex shrink-0 cursor-zoom-in rounded-full transition-shadow hover:ring-2 hover:ring-brand-500/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60"
-          >
-            {avatar}
-          </button>
-        ) : (
-          avatar
-        )}
-        {heading}
+    <Card className={card}>
+      <div className={cx(body, "space-y-2.5")}>
+        <div className="flex items-center gap-3">
+          {player.photo_url ? (
+            <button
+              type="button"
+              onClick={onPhoto}
+              aria-label={`Ver foto de ${player.name}`}
+              title="Ver foto"
+              className="flex shrink-0 cursor-zoom-in rounded-full transition-shadow hover:ring-2 hover:ring-brand-500/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60"
+            >
+              {avatar}
+            </button>
+          ) : (
+            avatar
+          )}
+          {heading}
+        </div>
+        {controls}
       </div>
-      {controls}
-    </div>
+    </Card>
   );
 }
 
