@@ -5,6 +5,7 @@ import { formatDate, fmt2, nameHash, readableOn } from "./format";
 import type { ExportTeam } from "./exportText";
 import { RANKING_FORMULA } from "./exportText";
 import { getTemplate, getNameCqw, type CardTemplate } from "./cards";
+import { drawPhotoAsCard } from "./cardPhoto";
 
 export type ImageTheme = "light" | "dark";
 
@@ -480,8 +481,8 @@ export async function drawRankingImage(
 ) {
   await fontsReady();
 
-  // Photos and template art of every player (cached by the browser)
-  const arts = await Promise.all(rows.map((r) => loadCardArt(r.card_template, r.photo_url)));
+  // Card art and template of every player (cached by the browser)
+  const arts = await Promise.all(rows.map((r) => loadCardArt(r.card_template, r.card_photo_url, r.photo_url)));
 
   const T = PALETTES[theme];
   const margin = 40;
@@ -602,7 +603,8 @@ export interface SingleCardExportData {
   score: number;
   goals: number;
   assists: number;
-  photoUrl?: string | null;
+  photoUrl?: string | null; // card art made in "Seu Card"
+  plainPhotoUrl?: string | null; // plain photo: builds the card when there is no card art
   templateId?: string | null;
 }
 
@@ -610,24 +612,30 @@ interface CardArt {
   template: CardTemplate;
   full: HTMLImageElement | null; // template art, also the shield mask
   empty: HTMLImageElement | null; // golden frame drawn on top
-  photo: HTMLImageElement | null; // player's card photo (replaces the art)
+  photo: HTMLImageElement | null; // player's card art (replaces the template art)
+  plain: HTMLImageElement | null; // plain photo, only loaded when there is no card art
 }
 
-async function loadCardArt(templateId: string | null | undefined, photoUrl: string | null | undefined): Promise<CardArt> {
+async function loadCardArt(
+  templateId: string | null | undefined,
+  photoUrl: string | null | undefined,
+  plainPhotoUrl?: string | null
+): Promise<CardArt> {
   const template = getTemplate(templateId || "card-template");
-  const [full, empty, photo] = await Promise.all([
+  const [full, empty, photo, plain] = await Promise.all([
     loadImage(template.fullUrl),
     loadImage(template.emptyUrl),
     photoUrl ? loadImage(photoUrl) : Promise.resolve(null),
+    !photoUrl && plainPhotoUrl ? loadImage(plainPhotoUrl) : Promise.resolve(null),
   ]);
-  return { template, full, empty, photo };
+  return { template, full, empty, photo, plain };
 }
 
 /** The player card as exported alone (proportions of PlayerCard.tsx), on its
  * own canvas ``cardW`` pixels wide; the height follows the template. Shared by
  * the single-card poster and the ranking, so both place the numbers alike. */
 function renderCard(card: SingleCardExportData, art: CardArt, cardW: number): HTMLCanvasElement {
-  const { template, full: fullImg, empty: emptyImg, photo: playerImg } = art;
+  const { template, full: fullImg, empty: emptyImg, photo: playerImg, plain: plainImg } = art;
   const cardH = Math.round(cardW / (template.width / template.height));
   const k = cardW / 700; // fixed sizes below were tuned on the 700px poster card
 
@@ -637,9 +645,11 @@ function renderCard(card: SingleCardExportData, art: CardArt, cardW: number): HT
   const cardCtx = cardCanvas.getContext("2d")!;
   cardCtx.textBaseline = "top";
 
-  // A. Draw base image (player photo or fallback template full)
+  // A. Draw base image (card art, card built from the plain photo, or template full)
   if (playerImg) {
     cardCtx.drawImage(playerImg, 0, 0, cardW, cardH);
+  } else if (plainImg) {
+    drawPhotoAsCard(cardCtx, plainImg, fullImg, cardW, cardH);
   } else if (fullImg) {
     cardCtx.drawImage(fullImg, 0, 0, cardW, cardH);
   }
@@ -753,7 +763,7 @@ export async function drawSingleCardPoster(
 ) {
   await fontsReady();
 
-  const art = await loadCardArt(card.templateId, card.photoUrl);
+  const art = await loadCardArt(card.templateId, card.photoUrl, card.plainPhotoUrl);
   const { template } = art;
 
   // Poster dimensions: 1040 x 1600 (matches card-idea.jpg standard)

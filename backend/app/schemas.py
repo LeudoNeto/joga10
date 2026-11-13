@@ -169,7 +169,8 @@ class PlayerOut(BaseModel):
     skill: float
     active: bool
     created_at: datetime
-    photo_url: Optional[str] = None
+    photo_url: Optional[str] = None  # plain photo (voting, avatars)
+    card_photo_url: Optional[str] = None  # card art made in "Seu Card"
     card_template: Optional[str] = None
 
 
@@ -450,6 +451,7 @@ class RankingRow(BaseModel):
     name: str
     position: Optional[str]
     photo_url: Optional[str]
+    card_photo_url: Optional[str] = None
     card_template: Optional[str] = None
     team_id: Optional[int]
     team_name: Optional[str]

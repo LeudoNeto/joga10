@@ -2,20 +2,25 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Player, PlayerPhoto
+from ..models import Player, PlayerCardPhoto, PlayerPhoto
 
 router = APIRouter(tags=["photos"])
 
 
 @router.get("/photos/{key}", response_class=Response)
 def get_photo(key: str, db: Session = Depends(get_db)):
-    """Serve a player photo. The key is random and changes on every upload,
-    so the URL works as a capability (<img> tags can't send the JWT) and the
-    response can be cached forever."""
+    """Serve a player photo or card art. The key is random and changes on
+    every upload, so the URL works as a capability (<img> tags can't send the
+    JWT) and the response can be cached forever."""
     photo = (
         db.query(PlayerPhoto)
         .join(Player, Player.id == PlayerPhoto.player_id)
         .filter(Player.photo_key == key)
+        .first()
+    ) or (
+        db.query(PlayerCardPhoto)
+        .join(Player, Player.id == PlayerCardPhoto.player_id)
+        .filter(Player.card_photo_key == key)
         .first()
     )
     if photo is None:

@@ -11,7 +11,7 @@ from ..deps import (
     require_group_staff,
     require_membership,
 )
-from ..models import STAFF_ROLES, Group, GroupMembership, Player, PlayerPhoto, Role
+from ..models import STAFF_ROLES, Group, GroupMembership, Player, PlayerCardPhoto, PlayerPhoto, Role
 from ..schemas import (
     BulkResult,
     ImportPreview,
@@ -268,33 +268,57 @@ def delete_player(
     db.commit()
 
 
+def _photo_target(db: Session, membership: GroupMembership, player_id: int) -> Player:
+    """Photos are changed by admins, moderators, or the member linked to the player."""
+    if membership.role not in STAFF_ROLES and membership.player_id != player_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
+    return _get_owned_player(db, membership.group_id, player_id)
+
+
+def _store_photo(db: Session, player: Player, file: UploadFile, card: bool) -> Player:
+    """Save the plain photo (square JPEG) or the card art (card proportions)."""
+    _, content = _read_upload(file, MAX_UPLOAD_BYTES + 1)
+    try:
+        data, content_type = process_photo(content, is_card=card)
+    except PhotoError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    relation, key, model = ("card_photo", "card_photo_key", PlayerCardPhoto) if card else ("photo", "photo_key", PlayerPhoto)
+    stored = getattr(player, relation)
+    if stored is None:
+        setattr(player, relation, model(data=data, content_type=content_type))
+    else:
+        stored.data = data
+        stored.content_type = content_type
+    # New key on every upload: old URLs stop working and caches never go stale.
+    setattr(player, key, secrets.token_urlsafe(24))
+    db.commit()
+    db.refresh(player)
+    return player
+
+
+def _clear_photo(db: Session, player: Player, card: bool) -> Player:
+    if card:
+        player.card_photo = None
+        player.card_photo_key = None
+    else:
+        player.photo = None
+        player.photo_key = None
+    db.commit()
+    db.refresh(player)
+    return player
+
+
 @router.post("/{player_id}/photo", response_model=PlayerOut)
 def upload_photo(
     player_id: int,
     file: UploadFile = File(...),
+    # Clients from before the card art had its own field sent the card here.
     is_card: bool = Form(default=False),
     membership: GroupMembership = Depends(require_membership),
     db: Session = Depends(get_db),
 ):
-    """Set/replace the (optional) player photo. Admins, moderators, or the member linked to this player."""
-    if membership.role not in STAFF_ROLES and membership.player_id != player_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
-    player = _get_owned_player(db, membership.group_id, player_id)
-    _, content = _read_upload(file, MAX_UPLOAD_BYTES + 1)
-    try:
-        data, content_type = process_photo(content, is_card=is_card)
-    except PhotoError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
-    if player.photo is None:
-        player.photo = PlayerPhoto(data=data, content_type=content_type)
-    else:
-        player.photo.data = data
-        player.photo.content_type = content_type
-    # New key on every upload: old URLs stop working and caches never go stale.
-    player.photo_key = secrets.token_urlsafe(24)
-    db.commit()
-    db.refresh(player)
-    return player
+    """Set/replace the (optional) plain player photo, used in the voting and avatars."""
+    return _store_photo(db, _photo_target(db, membership, player_id), file, card=is_card)
 
 
 @router.delete("/{player_id}/photo", response_model=PlayerOut)
@@ -303,11 +327,24 @@ def delete_photo(
     membership: GroupMembership = Depends(require_membership),
     db: Session = Depends(get_db),
 ):
-    if membership.role not in STAFF_ROLES and membership.player_id != player_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, STAFF_ONLY)
-    player = _get_owned_player(db, membership.group_id, player_id)
-    player.photo = None
-    player.photo_key = None
-    db.commit()
-    db.refresh(player)
-    return player
+    return _clear_photo(db, _photo_target(db, membership, player_id), card=False)
+
+
+@router.post("/{player_id}/card-photo", response_model=PlayerOut)
+def upload_card_photo(
+    player_id: int,
+    file: UploadFile = File(...),
+    membership: GroupMembership = Depends(require_membership),
+    db: Session = Depends(get_db),
+):
+    """Set/replace the card art made in "Seu Card" (the plain photo is kept)."""
+    return _store_photo(db, _photo_target(db, membership, player_id), file, card=True)
+
+
+@router.delete("/{player_id}/card-photo", response_model=PlayerOut)
+def delete_card_photo(
+    player_id: int,
+    membership: GroupMembership = Depends(require_membership),
+    db: Session = Depends(get_db),
+):
+    return _clear_photo(db, _photo_target(db, membership, player_id), card=True)

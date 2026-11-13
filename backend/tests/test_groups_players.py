@@ -159,30 +159,36 @@ def test_member_player_position_and_card_photo(api, client):
     # Member cannot edit another player's position
     api.req("PUT", f"/groups/{g['id']}/players/{p_other}", member, 403, json={"position": "GOL"})
 
-    # Member can upload card photo with is_card=True
+    # Member can upload their plain photo and, apart from it, the card art
+    base = f"/groups/{g['id']}/players/{pid}"
+    plain = api.req("POST", f"{base}/photo", member, 200, files={"file": ("p.png", _png(), "image/png")}).json()
     card_bytes = _png(644, 900)
-    res = api.req(
-        "POST",
-        f"/groups/{g['id']}/players/{pid}/photo",
-        member,
-        200,
-        files={"file": ("card.png", card_bytes, "image/png")},
-        data={"is_card": "true"},
-    ).json()
-    assert res["photo_url"] is not None
+    res = api.req("POST", f"{base}/card-photo", member, 200, files={"file": ("card.png", card_bytes, "image/png")}).json()
+    assert res["card_photo_url"].startswith("/api/photos/")
+    assert res["photo_url"] == plain["photo_url"]  # the plain photo is kept
 
-    # Card photo preserves dimensions and aspect ratio
-    card_res = client.get(res["photo_url"])
+    # Card art preserves dimensions and aspect ratio
+    card_res = client.get(res["card_photo_url"])
     assert card_res.status_code == 200
     im = Image.open(io.BytesIO(card_res.content))
     assert im.size == (644, 900)
 
-    # Member can delete their photo
-    api.req("DELETE", f"/groups/{g['id']}/players/{pid}/photo", member, 200)
+    # Clients from before the split sent the card art as is_card=true
+    old = api.req("POST", f"{base}/photo", member, 200, files={"file": ("card.png", card_bytes, "image/png")}, data={"is_card": "true"}).json()
+    assert old["photo_url"] == plain["photo_url"] and old["card_photo_url"] != res["card_photo_url"]
 
-    # Member cannot upload or delete another player's photo
-    api.req("POST", f"/groups/{g['id']}/players/{p_other}/photo", member, 403, files={"file": ("c.png", card_bytes, "image/png")})
-    api.req("DELETE", f"/groups/{g['id']}/players/{p_other}/photo", member, 403)
+    # Member can delete each of them
+    res = api.req("DELETE", f"{base}/card-photo", member, 200).json()
+    assert res["card_photo_url"] is None and res["photo_url"] == plain["photo_url"]
+    assert client.get(old["card_photo_url"]).status_code == 404
+    res = api.req("DELETE", f"{base}/photo", member, 200).json()
+    assert res["photo_url"] is None
+
+    # Member cannot upload or delete another player's photos
+    other = f"/groups/{g['id']}/players/{p_other}"
+    for kind in ("photo", "card-photo"):
+        api.req("POST", f"{other}/{kind}", member, 403, files={"file": ("c.png", card_bytes, "image/png")})
+        api.req("DELETE", f"{other}/{kind}", member, 403)
 
 
 def test_match_names(api):

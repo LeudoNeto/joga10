@@ -37,6 +37,33 @@ def test_migrations_upgrade_old_schema_and_are_idempotent():
     assert run_migrations(engine) == []  # second run: nothing to do
 
 
+def test_migration_copies_card_photos_to_the_card_field():
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text(OLD_SCHEMA[3]))  # players
+        conn.execute(text("ALTER TABLE players ADD COLUMN photo_key VARCHAR(64)"))
+        conn.execute(text(
+            "CREATE TABLE player_photos (player_id INTEGER PRIMARY KEY, content_type VARCHAR(50), "
+            "data BLOB, updated_at DATETIME)"
+        ))
+        conn.execute(text("INSERT INTO players (id, name, photo_key) VALUES (1, 'Card', 'k1'), (2, 'Plain', 'k2'), (3, 'None', NULL)"))
+        conn.execute(text(
+            "INSERT INTO player_photos (player_id, content_type, data) "
+            "VALUES (1, 'image/png', X'89'), (2, 'image/jpeg', X'FF')"
+        ))
+    Base.metadata.create_all(engine)
+    assert run_migrations(engine)
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT id, photo_key, card_photo_key FROM players ORDER BY id")).all()
+        cards = conn.execute(text("SELECT player_id, content_type, data FROM player_card_photos")).all()
+        plain = conn.execute(text("SELECT COUNT(*) FROM player_photos")).scalar()
+    assert cards == [(1, "image/png", b"\x89")]  # only the card art (PNG) is copied
+    assert rows[0][1] == "k1" and rows[0][2]  # its photo stays for the voting
+    assert rows[1][1:] == ("k2", None) and rows[2][1:] == (None, None)
+    assert plain == 2
+    assert run_migrations(engine) == []
+
+
 def test_fresh_schema_needs_no_migration():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)

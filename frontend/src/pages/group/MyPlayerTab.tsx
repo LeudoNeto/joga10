@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Camera,
   Check,
   Download,
   Lock,
@@ -36,6 +37,7 @@ import {
 } from "../../lib/cards";
 import { PlayerCard } from "../../components/PlayerCard";
 import { CardEditorModal } from "../../components/CardEditorModal";
+import { PhotoPicker, savePhoto, type PhotoChange } from "../../components/PlayerFields";
 import type { GroupDetail, Player } from "../../types";
 
 /** "Seu Jogador": the current user picks which player of the group they are,
@@ -241,11 +243,10 @@ export function MyPlayerTab({
     if (!linked) return;
     setBusy(true);
     try {
-      // 1. Upload card composite image
+      // 1. Upload card composite image (the plain photo stays for the voting)
       const form = new FormData();
       form.append("file", blob, "card.png");
-      form.append("is_card", "true");
-      await api.postForm(`/groups/${group.id}/players/${linked.id}/photo`, form);
+      await api.postForm(`/groups/${group.id}/players/${linked.id}/card-photo`, form);
 
       // 2. Save position & template
       await api.put(`/groups/${group.id}/players/${linked.id}`, {
@@ -268,25 +269,53 @@ export function MyPlayerTab({
     }
   }
 
-  // Remove photo
+  // Remove the card art (the plain photo is kept)
   async function removePhoto() {
     if (!linked) return;
     const ok = await confirm({
       title: "Remover foto do card?",
-      message: "Sua foto personalizada será removida e o card voltará ao fundo padrão.",
+      message:
+        "Sua foto personalizada será removida. O card passa a ser gerado a partir da sua foto limpa (ou volta ao fundo padrão, se não houver uma).",
       confirmLabel: "Remover",
       danger: true,
     });
     if (!ok) return;
     setBusy(true);
     try {
-      await api.del(`/groups/${group.id}/players/${linked.id}/photo`);
+      await api.del(`/groups/${group.id}/players/${linked.id}/card-photo`);
       toast("Foto removida com sucesso");
       const updated = await api.get<GroupDetail>(`/groups/${group.id}`);
       onChange(updated);
       await loadPlayers();
     } catch (err) {
       toast(errorMessage(err, "Falha ao remover foto"), { tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // "Foto limpa": the plain photo shown in the voting and avatars
+  async function saveCleanPhoto(change: PhotoChange) {
+    if (!linked || !change) return;
+    if (
+      change.kind === "remove" &&
+      !(await confirm({
+        title: "Remover foto limpa?",
+        message: "Ela deixa de aparecer na votação e nos avatares. O seu card não muda.",
+        confirmLabel: "Remover",
+        danger: true,
+      }))
+    )
+      return;
+    setBusy(true);
+    try {
+      await savePhoto(group.id, linked.id, change);
+      toast(change.kind === "remove" ? "Foto limpa removida" : "Foto limpa atualizada");
+      const updated = await api.get<GroupDetail>(`/groups/${group.id}`);
+      onChange(updated);
+      await loadPlayers();
+    } catch (err) {
+      toast(errorMessage(err, "Falha ao salvar a foto"), { tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -425,7 +454,8 @@ export function MyPlayerTab({
                   points={55}
                   goals={5}
                   assists={5}
-                  imageUrl={linked.photo_url}
+                  imageUrl={linked.card_photo_url}
+                  photoUrl={linked.photo_url}
                   templateId={selectedTemplateId}
                   className="shadow-2xl"
                 />
@@ -447,10 +477,10 @@ export function MyPlayerTab({
                   loading={busy}
                   className="w-full"
                 >
-                  {linked.photo_url ? "Editar Foto do Card" : "Enviar Foto para o Card"}
+                  {linked.card_photo_url ? "Editar Foto do Card" : "Enviar Foto para o Card"}
                 </Button>
 
-                {linked.photo_url && (
+                {linked.card_photo_url && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -467,6 +497,22 @@ export function MyPlayerTab({
 
             {/* Right: Customization Controls */}
             <div className="space-y-6">
+              {/* Plain photo (voting & avatars), apart from the card art */}
+              <Card className="space-y-4 p-5">
+                <SectionTitle
+                  icon={Camera}
+                  title="Foto limpa"
+                  description="Sua foto sem moldura, usada na votação e nos avatares do grupo. O card usa a foto enviada pelo editor do card."
+                />
+                <PhotoPicker
+                  name={linked.name}
+                  currentUrl={linked.photo_url}
+                  value={null}
+                  onChange={saveCleanPhoto}
+                  onError={(message) => toast(message, { tone: "error" })}
+                />
+              </Card>
+
               {/* Position Editor */}
               <Card className="space-y-4 p-5">
                 <SectionTitle

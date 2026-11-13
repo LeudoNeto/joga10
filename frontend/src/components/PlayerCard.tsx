@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { drawPhotoAsCard } from "../lib/cardPhoto";
 import { CARD_TEMPLATES, getNameCqw, getTemplate } from "../lib/cards";
 import { cx } from "./ui";
 
@@ -8,7 +9,8 @@ interface PlayerCardProps {
   points?: number;
   goals?: number;
   assists?: number;
-  imageUrl?: string | null;
+  imageUrl?: string | null; // card art made in "Seu Card"
+  photoUrl?: string | null; // plain photo: builds the card when there is no card art
   templateId?: string | null;
   className?: string;
 }
@@ -47,6 +49,7 @@ export function PlayerCard({
   goals = 5,
   assists = 5,
   imageUrl,
+  photoUrl,
   templateId,
   className,
 }: PlayerCardProps) {
@@ -83,7 +86,8 @@ export function PlayerCard({
 
     const render = async () => {
       try {
-        if (!imageUrl) {
+        const source = imageUrl || photoUrl;
+        if (!source) {
           const fullImg = await getLoadedImage(template.fullUrl);
           if (cancelled) return;
           ctx.clearRect(0, 0, w, h);
@@ -92,7 +96,7 @@ export function PlayerCard({
         }
 
         const [playerImg, fullImg, emptyImg] = await Promise.all([
-          getLoadedImage(imageUrl),
+          getLoadedImage(source),
           getLoadedImage(template.fullUrl),
           getLoadedImage(template.emptyUrl),
         ]);
@@ -101,8 +105,9 @@ export function PlayerCard({
 
         ctx.clearRect(0, 0, w, h);
 
-        // 1. Draw player image scaled to fill card dimensions
-        ctx.drawImage(playerImg, 0, 0, w, h);
+        // 1. Card art fills the card; a plain photo gets the editor's default framing
+        if (imageUrl) ctx.drawImage(playerImg, 0, 0, w, h);
+        else drawPhotoAsCard(ctx, playerImg, fullImg, w, h);
 
         // 2. Strict destination-in shield clipping (guarantees 100% transparent corners outside shield)
         ctx.globalCompositeOperation = "destination-in";
@@ -128,7 +133,7 @@ export function PlayerCard({
     return () => {
       cancelled = true;
     };
-  }, [imageUrl, template.id, template.width, template.height, template.fullUrl, template.emptyUrl]);
+  }, [imageUrl, photoUrl, template.id, template.width, template.height, template.fullUrl, template.emptyUrl]);
 
   return (
     <div

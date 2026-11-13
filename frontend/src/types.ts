@@ -73,7 +73,8 @@ export interface Player {
   skill: number;
   active: boolean;
   created_at: string;
-  photo_url: string | null;
+  photo_url: string | null; // "foto limpa": voting and avatars
+  card_photo_url: string | null; // card art made in "Seu Card"
   card_template: string | null;
 }
 
@@ -274,6 +275,7 @@ export interface RankingRow {
   name: string;
   position: string | null;
   photo_url: string | null;
+  card_photo_url?: string | null;
   card_template?: string | null;
   team_id: number | null;
   team_name: string | null;

@@ -230,7 +230,8 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
                         points={first.score}
                         goals={first.goals}
                         assists={first.assists}
-                        imageUrl={first.photo_url}
+                        imageUrl={first.card_photo_url}
+                        photoUrl={first.photo_url}
                         templateId={first.card_template || "card-template"}
                         className="shadow-2xl ring-2 ring-amber-400/50 transition-transform hover:scale-[1.03]"
                       />
@@ -300,7 +301,8 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
                             points={r.score}
                             goals={r.goals}
                             assists={r.assists}
-                            imageUrl={r.photo_url}
+                            imageUrl={r.card_photo_url}
+                            photoUrl={r.photo_url}
                             templateId={r.card_template || "card-template"}
                             className="shadow-xl transition-transform hover:scale-[1.02]"
                           />
@@ -346,7 +348,8 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
                               points={r.score}
                               goals={r.goals}
                               assists={r.assists}
-                              imageUrl={r.photo_url}
+                              imageUrl={r.card_photo_url}
+                              photoUrl={r.photo_url}
                               templateId={r.card_template || "card-template"}
                               className="shadow-xl transition-transform hover:scale-[1.02]"
                             />
@@ -441,9 +444,12 @@ export function StatsTab({ ctx }: { ctx: EventCtx }) {
                                 {/* Full miniature card shape (not circle) */}
                                 <div className="h-12 w-9 shrink-0 overflow-hidden rounded shadow-sm">
                                   <img
-                                    src={r.photo_url || "/cards/card-template.png"}
+                                    src={r.card_photo_url || r.photo_url || "/cards/card-template.png"}
                                     alt={r.name}
-                                    className="h-full w-full object-contain"
+                                    className={cx(
+                                      "h-full w-full",
+                                      !r.card_photo_url && r.photo_url ? "object-cover" : "object-contain"
+                                    )}
                                   />
                                 </div>
                                 <div className="min-w-0">
@@ -636,11 +642,10 @@ function EditPlayerModal({
   }) {
     setBusy(true);
     try {
-      // 1. Upload card composite image
+      // 1. Upload card composite image (the plain photo stays for the voting)
       const form = new FormData();
       form.append("file", blob, "card.png");
-      form.append("is_card", "true");
-      await api.postForm(`/groups/${ctx.group.id}/players/${player.id}/photo`, form);
+      await api.postForm(`/groups/${ctx.group.id}/players/${player.id}/card-photo`, form);
 
       // 2. Save position & template
       await api.put(`/groups/${ctx.group.id}/players/${player.id}`, {
@@ -715,7 +720,8 @@ function EditPlayerModal({
                   points={stat?.score ?? 0}
                   goals={goals}
                   assists={assists}
-                  imageUrl={player.photo_url}
+                  imageUrl={player.card_photo_url}
+                  photoUrl={player.photo_url}
                   templateId={templateId}
                   className="shadow-xl"
                 />

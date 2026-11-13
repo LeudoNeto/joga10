@@ -8,9 +8,10 @@ startup and on fresh databases (where it simply finds nothing to do).
 """
 
 import logging
+import secrets
 
 from sqlalchemy import inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 logger = logging.getLogger("joga10.migrations")
 
@@ -31,11 +32,13 @@ _COLUMNS = [
     ("players", "vote_skill", "FLOAT NULL"),
     ("players", "vote_count", "INTEGER NOT NULL DEFAULT 0"),
     ("grupos", "deleted_at", "DATETIME NULL"),
+    ("players", "card_photo_key", "VARCHAR(64) NULL"),
 ]
 
 # (table, column, DDL): created when no existing index starts with the column.
 _INDEXES = [
     ("players", "photo_key", "CREATE UNIQUE INDEX ix_players_photo_key ON players (photo_key)"),
+    ("players", "card_photo_key", "CREATE UNIQUE INDEX ix_players_card_photo_key ON players (card_photo_key)"),
     ("match_stats", "event_id", "CREATE INDEX ix_match_stats_event_id ON match_stats (event_id)"),
     (
         "group_memberships",
@@ -47,15 +50,43 @@ _INDEXES = [
 _ROLE_ENUM = "ENUM('admin','moderator','member')"
 
 
-def _pending_statements(engine: Engine) -> list[str]:
+def _copy_card_photos(conn: Connection) -> None:
+    """Card art used to be saved over the player's only photo. Those uploads
+    are the PNGs (plain photos are always stored as JPEG): copy them to the
+    new card field, keeping the photo itself for the voting as it was."""
+    conn.execute(
+        text(
+            "INSERT INTO player_card_photos (player_id, content_type, data, updated_at) "
+            "SELECT player_id, content_type, data, updated_at FROM player_photos "
+            "WHERE content_type = 'image/png'"
+        )
+    )
+    ids = conn.execute(text("SELECT player_id FROM player_card_photos")).scalars().all()
+    for player_id in ids:
+        conn.execute(
+            text("UPDATE players SET card_photo_key = :key WHERE id = :id"),
+            {"key": secrets.token_urlsafe(24), "id": player_id},
+        )
+    if ids:
+        logger.info("Migration: copied %d card photo(s) to player_card_photos", len(ids))
+
+
+# Data steps run once, right after the column they fill is added.
+_BACKFILLS = {("players", "card_photo_key"): _copy_card_photos}
+
+
+def _pending(engine: Engine) -> tuple[list[str], list[tuple[str, str]]]:
+    """Statements to run, and the (table, column) pairs they add."""
     insp = inspect(engine)
     tables = set(insp.get_table_names())
     columns = {t: {c["name"]: c for c in insp.get_columns(t)} for t in tables}
     statements: list[str] = []
+    added: list[tuple[str, str]] = []
 
     for table, column, ddl in _COLUMNS:
         if table in tables and column not in columns[table]:
             statements.append(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            added.append((table, column))
 
     for table, column, ddl in _INDEXES:
         if table not in tables:
@@ -76,16 +107,19 @@ def _pending_statements(engine: Engine) -> list[str]:
                 statements.append(
                     f"ALTER TABLE {table} MODIFY COLUMN role {_ROLE_ENUM} NOT NULL"
                 )
-    return statements
+    return statements, added
 
 
 def run_migrations(engine: Engine) -> list[str]:
     """Apply missing schema changes. Returns the statements executed."""
-    statements = _pending_statements(engine)
+    statements, added = _pending(engine)
     if not statements:
         return []
     with engine.begin() as conn:
         for statement in statements:
             logger.info("Migration: %s", statement)
             conn.execute(text(statement))
+        for column in added:
+            if column in _BACKFILLS:
+                _BACKFILLS[column](conn)
     return statements

@@ -141,6 +141,10 @@ class Player(Base):
     # Random, unguessable key of the current photo (changes on every upload),
     # used as a capability URL so <img> tags can load it without a token.
     photo_key = Column(String(64), unique=True, index=True, nullable=True)
+    # Same for the card art made in "Seu Card" (photo already framed in the
+    # card, with its shades). Apart from ``photo``, the plain photo shown in
+    # the voting and avatars.
+    card_photo_key = Column(String(64), unique=True, index=True, nullable=True)
     card_template = Column(String(50), nullable=True)
     # "Nota dinâmica": average of the members' votes (None: no votes yet),
     # refreshed whenever votes change. Only a suggestion: the draws keep using
@@ -155,10 +159,20 @@ class Player(Base):
         back_populates="player",
         cascade="all, delete-orphan",
     )
+    card_photo = relationship(
+        "PlayerCardPhoto",
+        uselist=False,
+        back_populates="player",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def photo_url(self) -> str | None:
         return f"/api/photos/{self.photo_key}" if self.photo_key else None
+
+    @property
+    def card_photo_url(self) -> str | None:
+        return f"/api/photos/{self.card_photo_key}" if self.card_photo_key else None
 
 
 class PlayerPhoto(Base):
@@ -174,6 +188,22 @@ class PlayerPhoto(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     player = relationship("Player", back_populates="photo")
+
+
+class PlayerCardPhoto(Base):
+    """Optional card art of a player, as saved by the card editor (PNG with
+    transparent corners, card proportions)."""
+
+    __tablename__ = "player_card_photos"
+
+    player_id = Column(
+        Integer, ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    content_type = Column(String(50), nullable=False)
+    data = Column(LargeBinary().with_variant(MEDIUMBLOB(), "mysql"), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    player = relationship("Player", back_populates="card_photo")
 
 
 class PlayerVote(Base):

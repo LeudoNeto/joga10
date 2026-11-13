@@ -72,7 +72,9 @@ export function PhotoPicker({
             Remover
           </Button>
         )}
-        <p className="w-full text-xs text-subtle">Opcional. A imagem é recortada em formato quadrado.</p>
+        <p className="w-full text-xs text-subtle">
+          Foto limpa (opcional), usada na votação e nos avatares. A imagem é recortada em formato quadrado.
+        </p>
       </div>
     </div>
   );

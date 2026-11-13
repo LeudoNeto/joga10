@@ -114,7 +114,8 @@ export function MyCardTab({ ctx }: { ctx: EventCtx }) {
       score: currentScore,
       goals: currentGoals,
       assists: currentAssists,
-      photoUrl: linked.photo_url,
+      photoUrl: linked.card_photo_url,
+      plainPhotoUrl: linked.photo_url,
       templateId: linked.card_template || "card-template",
     };
 
@@ -225,7 +226,8 @@ export function MyCardTab({ ctx }: { ctx: EventCtx }) {
               points={currentScore}
               goals={currentGoals}
               assists={currentAssists}
-              imageUrl={linked.photo_url}
+              imageUrl={linked.card_photo_url}
+              photoUrl={linked.photo_url}
               templateId={linked.card_template || "card-template"}
               className="shadow-2xl transition-transform hover:scale-[1.02]"
             />
