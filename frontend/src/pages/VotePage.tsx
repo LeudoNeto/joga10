@@ -22,7 +22,6 @@ import { useConfirm, useToast } from "../components/Feedback";
 import {
   Alert,
   Avatar,
-  Badge,
   Button,
   Card,
   EmptyState,
@@ -66,9 +65,9 @@ const PHOTO_MODE_KEY = "joga10_vote_photos";
 
 function readPhotoMode(): PhotoMode {
   try {
-    return localStorage.getItem(PHOTO_MODE_KEY) === "big" ? "big" : "zoom";
+    return localStorage.getItem(PHOTO_MODE_KEY) === "zoom" ? "zoom" : "big";
   } catch {
-    return "zoom";
+    return "big";
   }
 }
 
@@ -227,7 +226,7 @@ export function VotePage() {
               <div className="w-full sm:w-64">
                 <div className="flex justify-between text-xs text-muted">
                   <span>
-                    {rated} de {eligible.length} com nota
+                    {rated} de {eligible.length} avaliados
                   </span>
                   <span className="tabular">{Math.round((rated / eligible.length) * 100)}%</span>
                 </div>
@@ -414,17 +413,12 @@ function VoteRow({
         <p className="truncate font-medium text-fg">{player.name}</p>
         <p className="truncate text-xs text-subtle">{player.position || "Sem posição"}</p>
       </div>
+      {/* The player's real nota (the one used by the draws); the member's own
+          vote is the selected button below. */}
       <div className="shrink-0 text-right">
-        {value === undefined ? (
-          <span className="text-xs text-subtle">sem nota</span>
-        ) : value === null ? (
-          <Badge tone="amber" icon={CircleQuestionMark}>
-            Não sei
-          </Badge>
-        ) : (
-          <span className="text-xl font-bold tabular text-fg">{fmtSkill(value)}</span>
-        )}
-        {changed && <span className="block text-[11px] font-semibold text-accent">não salvo</span>}
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-subtle">Nota atual</p>
+        <p className="text-xl font-bold leading-tight tabular text-fg">{fmtSkill(player.skill)}</p>
+        {changed && <span className="block text-[11px] font-semibold text-accent">voto não salvo</span>}
       </div>
     </>
   );
