@@ -42,6 +42,21 @@ export function groupForVoting(
 /** Same nota up to the 2 decimals the app works with. */
 export const sameSkill = (a: number, b: number) => Math.abs(a - b) < 0.005;
 
+/** Same vote: both "Não sei" (null), both missing, or the same nota. */
+export const sameVote = (a: number | null | undefined, b: number | null | undefined) =>
+  a === b || (typeof a === "number" && typeof b === "number" && sameSkill(a, b));
+
+/** Votes still pending once `sent` was saved: a vote changed again while the
+ * request was going stays pending (with its newer value). */
+export function withoutSent<K>(pending: Map<K, number | null>, sent: Map<K, number | null>) {
+  const next = new Map(pending);
+  for (const [key, value] of sent) if (next.has(key) && sameVote(next.get(key), value)) next.delete(key);
+  return next;
+}
+
+/** Wait before retrying a failed save: 2s, 4s, 8s, then every 15s. */
+export const retryDelay = (failures: number) => Math.min(15_000, 1000 * 2 ** failures);
+
 /** Nota typed in the "Personalizado" input ("7,25" or "7.25"), rounded to 2
  * decimals; null when it is not a number inside the group range. */
 export function parseVote(text: string, min: number, max: number): number | null {

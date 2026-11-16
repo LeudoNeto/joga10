@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Player, PlayerVote } from "../types";
-import { groupForVoting, parseVote, voteOptions } from "./votes";
+import { groupForVoting, parseVote, retryDelay, voteOptions, withoutSent } from "./votes";
 
 describe("voteOptions", () => {
   it("uses whole numbers for 0-10", () => {
@@ -48,5 +48,17 @@ describe("parseVote", () => {
     expect(parseVote("abc", 0, 10)).toBeNull();
     expect(parseVote("10,5", 0, 10)).toBeNull();
     expect(parseVote("0,5", 1, 10)).toBeNull();
+  });
+});
+
+describe("autosave helpers", () => {
+  it("keeps only the votes changed again while saving", () => {
+    const sent = new Map<number, number | null>([[1, 7], [2, null], [3, 5]]);
+    const pending = new Map<number, number | null>([[1, 7], [2, 8], [3, 5], [4, 6]]);
+    expect([...withoutSent(pending, sent)]).toEqual([[2, 8], [4, 6]]);
+  });
+
+  it("retries after a growing delay, capped", () => {
+    expect([1, 2, 3, 4, 10].map(retryDelay)).toEqual([2000, 4000, 8000, 15000, 15000]);
   });
 });

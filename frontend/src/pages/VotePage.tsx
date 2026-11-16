@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Check,
@@ -6,17 +6,17 @@ import {
   CircleCheck,
   CircleQuestionMark,
   Image as ImageIcon,
-  Save,
+  RefreshCw,
   Search,
   SlidersHorizontal,
   Sparkles,
-  Undo2,
   UserCheck,
   Vote,
+  WifiOff,
   ZoomIn,
   type LucideIcon,
 } from "lucide-react";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useToast } from "../components/Feedback";
 import {
@@ -34,7 +34,17 @@ import {
   cx,
 } from "../components/ui";
 import { errorMessage, fmtSkill, isStaff, plural } from "../lib/format";
-import { VOTE_SECTIONS, groupForVoting, parseVote, sameSkill, voteOptions, type VoteSection } from "../lib/votes";
+import {
+  VOTE_SECTIONS,
+  groupForVoting,
+  parseVote,
+  retryDelay,
+  sameSkill,
+  sameVote,
+  voteOptions,
+  withoutSent,
+  type VoteSection,
+} from "../lib/votes";
 import type { GroupDetail, Member, Player, PlayerVote } from "../types";
 
 const SECTION_INFO: Record<VoteSection, { title: string; description: string; icon: LucideIcon }> = {
@@ -57,6 +67,98 @@ const SECTION_INFO: Record<VoteSection, { title: string; description: string; ic
 
 /** Votes changed and not saved yet: nota, or null for "Não sei". */
 type Draft = Map<number, number | null>;
+
+/** Pause after the last change before saving (a slider drag becomes one save). */
+const SAVE_DELAY = 700;
+/** Failed saves in a row before the problem is shown to the voter. */
+const ALERT_AFTER = 3;
+
+/** Votes save by themselves: a short pause after the last change sends every
+ * pending vote in one request. Connection and server failures are retried
+ * with a growing delay; a vote the server refuses (4xx) is dropped with a
+ * message, since sending it again would never work. */
+function useVoteAutosave(
+  groupId: number,
+  onSaved: (saved: PlayerVote[]) => void,
+  onRejected: (message: string) => void
+) {
+  const [pending, setPending] = useState<Draft>(new Map());
+  const [failures, setFailures] = useState(0);
+  // Refs: timers and the request outlive the render that started them.
+  const pendingRef = useRef(pending);
+  const failuresRef = useRef(0);
+  const sending = useRef(false);
+  const alive = useRef(true);
+  const timer = useRef<number | undefined>(undefined);
+  const callbacks = useRef({ onSaved, onRejected });
+  callbacks.current = { onSaved, onRejected };
+
+  const setPendingNow = (next: Draft) => {
+    pendingRef.current = next;
+    setPending(next);
+  };
+  const setFailuresNow = (n: number) => {
+    failuresRef.current = n;
+    setFailures(n);
+  };
+
+  const flush = useCallback(async () => {
+    window.clearTimeout(timer.current);
+    if (sending.current || !pendingRef.current.size) return;
+    const sent = new Map(pendingRef.current);
+    sending.current = true;
+    try {
+      const saved = await api.put<PlayerVote[]>(`/groups/${groupId}/votes`, {
+        votes: [...sent].map(([player_id, skill]) => ({ player_id, skill })),
+      });
+      callbacks.current.onSaved(saved);
+      setPendingNow(withoutSent(pendingRef.current, sent));
+      setFailuresNow(0);
+    } catch (err) {
+      const refused = err instanceof ApiError && err.status >= 400 && err.status < 500 && ![408, 429].includes(err.status);
+      if (refused) {
+        callbacks.current.onRejected(err.message);
+        setPendingNow(withoutSent(pendingRef.current, sent));
+        setFailuresNow(0);
+      } else {
+        setFailuresNow(failuresRef.current + 1);
+      }
+    } finally {
+      sending.current = false;
+    }
+    // Votes made while saving, or a retry; after leaving the page, no retries.
+    if (alive.current && pendingRef.current.size) {
+      timer.current = window.setTimeout(flush, failuresRef.current ? retryDelay(failuresRef.current) : SAVE_DELAY);
+    }
+  }, [groupId]);
+
+  const queue = useCallback(
+    (playerId: number, value: number | null) => {
+      setPendingNow(new Map(pendingRef.current).set(playerId, value));
+      if (failuresRef.current) return; // the retry already scheduled sends it too
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(flush, SAVE_DELAY);
+    },
+    [flush]
+  );
+
+  useEffect(() => {
+    alive.current = true;
+    // Save right away when the connection comes back or the page is left
+    // (app switched on the phone, tab hidden, navigation inside the app).
+    const onHidden = () => document.visibilityState === "hidden" && flush();
+    window.addEventListener("online", flush);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("online", flush);
+      document.removeEventListener("visibilitychange", onHidden);
+      alive.current = false;
+      flush();
+    };
+  }, [flush]);
+
+  return { pending, failing: failures >= ALERT_AFTER, queue, retryNow: flush };
+}
 
 /** zoom: small avatar, tap to open it bigger · big: large photo in each row */
 type PhotoMode = "zoom" | "big";
@@ -84,9 +186,10 @@ export function VotePage() {
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [votes, setVotes] = useState<Map<number, PlayerVote>>(new Map());
-  const [draft, setDraft] = useState<Draft>(new Map());
+  // Votes as loaded with the page: they place the players in the sections, so
+  // rows don't jump from "Não votados" to "Já votados" as each vote saves.
+  const [loadedVotes, setLoadedVotes] = useState<Map<number, PlayerVote>>(new Map());
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [viewing, setViewing] = useState<Player | null>(null); // photo opened bigger
   const [photoMode, setPhotoMode] = useState<PhotoMode>(readPhotoMode);
@@ -100,7 +203,9 @@ export function VotePage() {
       ]);
       setGroup(g);
       setPlayers(ps);
-      setVotes(new Map(vs.map((v) => [v.player_id, v])));
+      const loaded = new Map(vs.map((v) => [v.player_id, v]));
+      setVotes(loaded);
+      setLoadedVotes(loaded);
     } catch (err) {
       setError(errorMessage(err, "Falha ao carregar a votação"));
     }
@@ -110,21 +215,29 @@ export function VotePage() {
     load();
   }, [load]);
 
-  // Warn before closing the tab with votes not saved.
+  const { pending, failing, queue, retryNow } = useVoteAutosave(
+    id,
+    (saved) => setVotes(new Map(saved.map((v) => [v.player_id, v]))),
+    (message) => toast(message, { tone: "error" })
+  );
+
+  // Warn before closing the tab while a vote is still on its way.
   useEffect(() => {
-    if (!draft.size) return;
+    if (!pending.size) return;
     const onUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
-  }, [draft.size]);
+  }, [pending.size]);
 
   const me = group?.members.find((m) => m.user_id === user?.id);
   const selfId = me?.player_id ?? null;
-  // Sections follow the *saved* votes, so rows do not jump around while voting.
-  const sections = useMemo(() => groupForVoting(players ?? [], votes, selfId), [players, votes, selfId]);
+  const sections = useMemo(
+    () => groupForVoting(players ?? [], loadedVotes, selfId),
+    [players, loadedVotes, selfId]
+  );
 
   if (error) return <Alert>{error}</Alert>;
   if (!group || !players) return <Spinner label="Carregando votação..." />;
@@ -133,7 +246,7 @@ export function VotePage() {
   const options = voteOptions(group.min_skill, group.max_skill);
   const eligible = VOTE_SECTIONS.flatMap((s) => sections[s]);
   const valueOf = (playerId: number): number | null | undefined =>
-    draft.has(playerId) ? draft.get(playerId) : votes.get(playerId)?.skill;
+    pending.has(playerId) ? pending.get(playerId) : votes.get(playerId)?.skill;
   const rated = eligible.filter((p) => typeof valueOf(p.id) === "number").length;
   const q = query.trim().toLowerCase();
   const matches = (p: Player) =>
@@ -141,34 +254,7 @@ export function VotePage() {
   const self = players.find((p) => p.id === selfId);
 
   function change(playerId: number, value: number | null) {
-    setDraft((prev) => {
-      const next = new Map(prev);
-      const saved = votes.get(playerId);
-      const same =
-        saved !== undefined &&
-        (saved.skill === null || value === null ? saved.skill === value : sameSkill(saved.skill, value));
-      if (same) next.delete(playerId);
-      else next.set(playerId, value);
-      return next;
-    });
-  }
-
-  async function save() {
-    if (!draft.size) return;
-    setBusy(true);
-    try {
-      const saved = await api.put<PlayerVote[]>(`/groups/${id}/votes`, {
-        votes: [...draft].map(([player_id, skill]) => ({ player_id, skill })),
-      });
-      setVotes(new Map(saved.map((v) => [v.player_id, v])));
-      setDraft(new Map());
-      toast(`Votação salva (${plural(draft.size, "voto", "votos")})`);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err) {
-      toast(errorMessage(err, "Falha ao salvar a votação"), { tone: "error" });
-    } finally {
-      setBusy(false);
-    }
+    if (!sameVote(valueOf(playerId), value)) queue(playerId, value);
   }
 
   function choosePhotoMode(mode: PhotoMode) {
@@ -181,11 +267,13 @@ export function VotePage() {
   }
 
   async function back() {
+    // Leaving saves what is pending (on unmount); ask only when saving is failing.
     if (
-      draft.size &&
+      failing &&
+      pending.size &&
       !(await confirm({
         title: "Sair sem salvar?",
-        message: `Você tem ${plural(draft.size, "voto não salvo", "votos não salvos")}.`,
+        message: `${plural(pending.size, "voto ainda não foi salvo", "votos ainda não foram salvos")} por falta de conexão.`,
         confirmLabel: "Sair sem salvar",
         danger: true,
       }))
@@ -287,7 +375,7 @@ export function VotePage() {
                           key={p.id}
                           player={p}
                           value={valueOf(p.id)}
-                          changed={draft.has(p.id)}
+                          unsaved={failing && pending.has(p.id)}
                           options={options}
                           min={group.min_skill}
                           max={group.max_skill}
@@ -304,37 +392,25 @@ export function VotePage() {
                 <p className="py-6 text-center text-sm text-muted">Nenhum jogador encontrado.</p>
               )}
 
-              <div className="sticky bottom-4 z-30">
-                <div className="flex items-center justify-between gap-2 rounded-2xl border border-line bg-surface/95 py-2.5 pl-4 pr-2.5 shadow-pop backdrop-blur sm:gap-3 sm:py-3 sm:pr-4">
-                  <p className="min-w-0 text-sm text-muted">
-                    {draft.size ? (
-                      <strong className="text-fg">
-                        {plural(draft.size, "alteração", "alterações")}
-                        <span className="hidden sm:inline"> não {draft.size === 1 ? "salva" : "salvas"}</span>
-                      </strong>
-                    ) : (
-                      "Tudo salvo"
-                    )}
-                  </p>
-                  <div className="flex shrink-0 gap-1.5 sm:gap-2">
-                    {draft.size > 0 && (
-                      <Button
-                        variant="ghost"
-                        icon={Undo2}
-                        onClick={() => setDraft(new Map())}
-                        disabled={busy}
-                        aria-label="Descartar alterações"
-                        title="Descartar alterações"
-                      >
-                        <span className="hidden sm:inline">Descartar</span>
-                      </Button>
-                    )}
-                    <Button icon={Save} onClick={save} loading={busy} disabled={!draft.size}>
-                      Salvar<span className="hidden sm:inline"> votação</span>
+              {/* Votes save by themselves; only a save failing again and again shows up. */}
+              {failing && pending.size > 0 && (
+                <div className="sticky bottom-4 z-30">
+                  <div
+                    role="alert"
+                    className="flex items-center gap-3 rounded-2xl border border-red-500/40 bg-surface/95 py-2.5 pl-4 pr-2.5 shadow-pop backdrop-blur sm:pr-4"
+                  >
+                    <WifiOff size={18} className="shrink-0 text-red-500" />
+                    <p className="min-w-0 flex-1 text-sm text-muted">
+                      <strong className="text-fg">Sem conexão com o servidor.</strong>{" "}
+                      {plural(pending.size, "voto ainda não foi salvo", "votos ainda não foram salvos")}; tentando de
+                      novo...
+                    </p>
+                    <Button size="sm" variant="secondary" icon={RefreshCw} onClick={retryNow} className="shrink-0">
+                      Tentar agora
                     </Button>
                   </div>
                 </div>
-              </div>
+              )}
             </>
           )}
         </>
@@ -359,7 +435,7 @@ const chipWide = "inline-flex items-center justify-center gap-1.5 whitespace-now
 function VoteRow({
   player,
   value,
-  changed,
+  unsaved,
   options,
   min,
   max,
@@ -369,7 +445,7 @@ function VoteRow({
 }: {
   player: Player;
   value: number | null | undefined; // undefined: not voted yet
-  changed: boolean;
+  unsaved: boolean; // still not saved after several attempts
   options: number[];
   min: number;
   max: number;
@@ -417,7 +493,7 @@ function VoteRow({
       <div className="shrink-0 text-right">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-subtle">Nota atual</p>
         <p className="text-xl font-bold leading-tight tabular text-fg">{fmtSkill(player.skill)}</p>
-        {changed && <span className="block text-[11px] font-semibold text-accent">voto não salvo</span>}
+        {unsaved && <span className="block text-[11px] font-semibold text-accent">voto não salvo</span>}
       </div>
     </>
   );
@@ -496,8 +572,8 @@ function VoteRow({
   );
 
   // One card per player, so a photo never looks like it belongs to the next one.
-  const card = cx("overflow-hidden transition-shadow", changed && "ring-1 ring-brand-500/40");
-  const body = cx("p-4 transition-colors", changed && "bg-brand-600/[0.06]");
+  const card = cx("overflow-hidden transition-shadow", unsaved && "ring-1 ring-brand-500/40");
+  const body = cx("p-4 transition-colors", unsaved && "bg-brand-600/[0.06]");
 
   if (big)
     return (
