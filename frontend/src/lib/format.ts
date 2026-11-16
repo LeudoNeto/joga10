@@ -6,6 +6,12 @@ export function formatDate(iso: string) {
   return y && m && d ? `${d}/${m}/${y}` : iso;
 }
 
+/** Local day of a server timestamp (naive UTC, e.g. "2026-11-13T15:04:05"). */
+export function fmtDay(timestamp: string) {
+  const date = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(timestamp) ? timestamp : `${timestamp}Z`);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("pt-BR");
+}
+
 /** Nota for the UI: compact, pt-BR decimal comma (8 | 8,5 | 8,75). */
 export function fmtSkill(value: number) {
   return (Math.round(value * 100) / 100).toString().replace(".", ",");

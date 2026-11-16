@@ -101,6 +101,36 @@ export interface VoteSummary {
   players: VoteSummaryRow[];
 }
 
+/** Voting statistics (admins only): raw data, aggregated in lib/voteStats. */
+export interface VoteStatsPlayer extends Player {
+  vote_skill: number | null;
+  vote_count: number;
+}
+
+export interface VoteStatsVoter {
+  user_id: number;
+  name: string;
+  role: Role;
+  player_id: number | null; // their player (needed to vote)
+  player_name: string | null;
+  photo_url: string | null; // their player's photo
+}
+
+export interface VoteStatsVote {
+  voter_id: number;
+  player_id: number;
+  skill: number | null; // null: "Não sei"
+  updated_at: string;
+}
+
+export interface VoteStats {
+  min_skill: number;
+  max_skill: number;
+  players: VoteStatsPlayer[];
+  voters: VoteStatsVoter[];
+  votes: VoteStatsVote[];
+}
+
 export type ImportAction = "update" | "create" | "ignore";
 
 export interface ParsedPlayerRow {

@@ -1,6 +1,17 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileUp, Pencil, Plus, Search, Shirt, SlidersHorizontal, Trash2, UserPlus, Vote } from "lucide-react";
+import {
+  ChartColumn,
+  FileUp,
+  Pencil,
+  Plus,
+  Search,
+  Shirt,
+  SlidersHorizontal,
+  Trash2,
+  UserPlus,
+  Vote,
+} from "lucide-react";
 import { api } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import type { GroupDetail, Player, PlayerVote } from "../../types";
@@ -21,6 +32,7 @@ import {
   Spinner,
 } from "../../components/ui";
 import { errorMessage, fmtSkill, plural } from "../../lib/format";
+import { groupForVoting } from "../../lib/votes";
 import { ApplyVotesModal } from "./ApplyVotesModal";
 import { ImportPlayersModal, importSummary } from "./ImportPlayersModal";
 
@@ -48,7 +60,7 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [applyingVotes, setApplyingVotes] = useState(false);
-  const [voted, setVoted] = useState<Set<number> | null>(null);
+  const [voted, setVoted] = useState<Map<number, PlayerVote> | null>(null);
   const [query, setQuery] = useState("");
 
   async function load() {
@@ -67,14 +79,15 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
   useEffect(() => {
     api
       .get<PlayerVote[]>(`/groups/${group.id}/votes`)
-      .then((votes) => setVoted(new Set(votes.map((v) => v.player_id))))
+      .then((votes) => setVoted(new Map(votes.map((v) => [v.player_id, v]))))
       .catch(() => setVoted(null));
   }, [group.id]);
 
-  // Players the current member has not voted on yet (new ones included).
+  // Players the current member has not voted on yet (new ones included), by
+  // the same rule as the voting page (active players only).
   const selfId = group.members.find((m) => m.user_id === user?.id)?.player_id ?? null;
   const pendingVotes =
-    selfId !== null && voted && players ? players.filter((p) => p.id !== selfId && !voted.has(p.id)).length : 0;
+    selfId !== null && voted && players ? groupForVoting(players, voted, selfId).pending.length : 0;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -127,6 +140,9 @@ export function PlayersTab({ group, onChange }: { group: GroupDetail; onChange: 
           </Button>
           {isAdmin && (
             <>
+              <Button variant="secondary" icon={ChartColumn} onClick={() => navigate(`/groups/${group.id}/vote/stats`)}>
+                Estatísticas
+              </Button>
               <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setApplyingVotes(true)}>
                 Atualizar notas
               </Button>

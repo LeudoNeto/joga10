@@ -206,8 +206,7 @@ export function VotePage() {
         </h1>
         <p className="mt-1.5 max-w-2xl text-sm text-muted">
           Dê a sua nota, de {fmtSkill(group.min_skill)} a {fmtSkill(group.max_skill)}, para os jogadores do grupo.
-          Seus votos são secretos: os administradores veem apenas a média de cada jogador e decidem quando usá-la
-          como a nota do sorteio.
+          A média dos votos de cada jogador ajuda os administradores a definir a nota usada no sorteio.
         </p>
       </div>
 

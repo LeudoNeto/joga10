@@ -5,7 +5,18 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import check_skill, require_group_admin, require_membership
 from ..models import GroupMembership, Player, PlayerVote
-from ..schemas import PlayerOut, VoteApply, VoteOut, VotesSave, VoteSummary, VoteSummaryRow
+from ..schemas import (
+    PlayerOut,
+    VoteApply,
+    VoteOut,
+    VotesSave,
+    VoteStats,
+    VoteStatsPlayer,
+    VoteStatsVote,
+    VoteStatsVoter,
+    VoteSummary,
+    VoteSummaryRow,
+)
 from ..services.votes import refresh_vote_skills
 
 router = APIRouter(prefix="/groups/{group_id}/votes", tags=["votes"])
@@ -120,6 +131,50 @@ def votes_summary(
                 unknown_count=unknown.get(p.id, 0),
             )
             for p in players
+        ],
+    )
+
+
+@router.get("/stats", response_model=VoteStats)
+def votes_stats(
+    membership: GroupMembership = Depends(require_group_admin),
+    db: Session = Depends(get_db),
+):
+    """Every vote of the group with who cast it, for the voting statistics.
+    Admins only: unlike the summary, it shows each member's individual votes."""
+    group = membership.group
+    members = db.query(GroupMembership).filter_by(group_id=group.id).all()
+    voters = [
+        VoteStatsVoter(
+            user_id=m.user_id,
+            name=m.user.name,
+            role=m.role,
+            player_id=m.player_id,
+            player_name=m.player.name if m.player else None,
+            photo_url=m.player.photo_url if m.player else None,
+        )
+        for m in members
+    ]
+    # Votes of members only (leaving the group drops them anyway).
+    votes = (
+        db.query(PlayerVote)
+        .filter(
+            PlayerVote.group_id == group.id,
+            PlayerVote.voter_id.in_([m.user_id for m in members]),
+        )
+        .all()
+    )
+    players = db.query(Player).filter_by(group_id=group.id).order_by(Player.name.asc()).all()
+    return VoteStats(
+        min_skill=group.min_skill,
+        max_skill=group.max_skill,
+        players=[VoteStatsPlayer.model_validate(p) for p in players],
+        voters=voters,
+        votes=[
+            VoteStatsVote(
+                voter_id=v.voter_id, player_id=v.player_id, skill=v.skill, updated_at=v.updated_at
+            )
+            for v in votes
         ],
     )
 

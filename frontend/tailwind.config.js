@@ -23,6 +23,11 @@ export default {
         subtle: token("subtle"),
         // Red accent for text/icons, tuned per theme for contrast
         accent: token("accent"),
+        // Chart marks (voting stats): nota given / "Não sei"
+        viz: {
+          score: token("viz-score"),
+          unknown: token("viz-unknown"),
+        },
         // Brand palette (red)
         brand: {
           50: "#fef2f2",

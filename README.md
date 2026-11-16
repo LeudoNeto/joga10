@@ -282,14 +282,34 @@ porque ninguém vota na própria nota.
 - Ao salvar, a média dos votos de cada jogador (sem os "Não sei") é gravada
   como a **nota dinâmica** (`Player.vote_skill`). Ela é só uma sugestão: o
   sorteio continua usando a nota do jogador.
-- Os votos são secretos: cada membro só lê os seus; os admins veem apenas as
-  médias.
+- Cada membro só lê os próprios votos; os votos individuais aparecem apenas
+  para admins, nas **Estatísticas** (abaixo).
 - O admin usa **Atualizar notas** para comparar a nota atual com a média de
   cada jogador. A média vem sugerida (Aceitar), e para cada jogador ele pode
   **Recusar** (mantém a nota atual) ou **Editar** (define outra nota).
 - Quem sai do grupo tem os votos apagados; ao ser vinculado a um jogador, o
   voto do membro nele mesmo é descartado; ao reduzir a faixa de notas, os votos
   são ajustados como as notas.
+
+### Estatísticas de Votação (só admins)
+
+Botão **Estatísticas** na aba Jogadores (`/groups/{id}/vote/stats`). O back-end
+entrega os votos brutos (`GET /groups/{id}/votes/stats`) e o navegador agrega
+(`lib/voteStats.ts`). Três abas:
+
+- **Geral** — quantos votaram, cobertura (com nota / "Não sei" / sem voto sobre
+  as avaliações esperadas: cada membro com jogador × os outros jogadores
+  ativos), distribuição das notas, participação por votante, maiores diferenças
+  entre a média e a nota atual, opiniões mais divididas e jogadores menos
+  conhecidos.
+- **Por Jogador** — notas recebidas (barras por nota; notas personalizadas
+  entram na nota mais próxima), com as fotos dos votantes em cada coluna
+  (desligadas por padrão, para não carregar imagens; tocar abre a foto ampliada
+  com o nome), os votos sobre a escala com a média e a nota atual, e a lista de
+  quem votou e com qual nota, quem marcou "Não sei" e quem não votou.
+- **Por votante** — as notas que a pessoa deu, a nota em cada jogador
+  comparada à média dos outros votantes, e se ela dá notas mais altas ou mais
+  baixas que o grupo.
 
 ## 🌐 Principais endpoints (prefixo `/api`)
 
@@ -303,7 +323,7 @@ POST/DELETE /groups/{id}/players/{pid}/photo GET /photos/{key}
 POST   /groups/{id}/players/import           POST /groups/{id}/players/bulk
 POST   /groups/{id}/players/match-names      (importar selecionados)
 GET/PUT /groups/{id}/votes                   (meus votos; nota ou null = "Não sei")
-GET    /groups/{id}/votes/summary            POST /groups/{id}/votes/apply (admin)
+GET    /groups/{id}/votes/summary | /stats   POST /groups/{id}/votes/apply (admin)
 GET/POST /groups/{id}/events                 GET/PATCH/DELETE /events/{eid}
 GET/PUT/DELETE /events/{eid}/teams           POST /events/{eid}/teams (novo time)
 DELETE /events/{eid}/teams/{tid}             PUT/DELETE /events/{eid}/teams/{tid}/players/{pid}

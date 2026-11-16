@@ -282,6 +282,39 @@ class VoteApply(BaseModel):
     updates: list[SkillUpdate] = Field(min_length=1, max_length=1000)
 
 
+class VoteStatsPlayer(PlayerOut):
+    vote_skill: Optional[float] = None
+    vote_count: int = 0
+
+
+class VoteStatsVoter(BaseModel):
+    """A member of the group, as a (possible) voter."""
+
+    user_id: int
+    name: str
+    role: Role
+    player_id: Optional[int] = None  # their player (needed to vote)
+    player_name: Optional[str] = None
+    photo_url: Optional[str] = None  # their player's photo
+
+
+class VoteStatsVote(BaseModel):
+    voter_id: int
+    player_id: int
+    skill: Optional[float]  # None: "Não sei"
+    updated_at: datetime
+
+
+class VoteStats(BaseModel):
+    """Raw voting data of a group (admins only); the client aggregates it."""
+
+    min_skill: float
+    max_skill: float
+    players: list[VoteStatsPlayer]
+    voters: list[VoteStatsVoter]
+    votes: list[VoteStatsVote]
+
+
 # ---------------------------------------------------------------------------
 # Events
 # ---------------------------------------------------------------------------

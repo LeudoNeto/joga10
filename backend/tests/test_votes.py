@@ -126,3 +126,29 @@ def test_votes_follow_membership_and_range_changes(api):
     # Deleting a player deletes the votes on it.
     api.req("DELETE", f"/groups/{gid}/players/{p1}", admin, 204)
     assert api.req("GET", f"/groups/{gid}/votes", alice, 200).json() == []
+
+
+def test_stats_show_individual_votes_to_admins_only(api):
+    admin = api.user("Admin")
+    g, players, _ = api.group_with_players(admin, [5, 6, 7])
+    gid = g["id"]
+    p0, p1, p2 = (p["id"] for p in players)
+    alice = api.join(gid, admin, "member")
+    mod = api.join(gid, admin, "moderator")
+    _link(api, gid, alice, p0)
+    _vote(api, gid, alice, {p1: 8, p2: None})
+
+    # Individual votes are for admins only (moderators and members: 403).
+    api.req("GET", f"/groups/{gid}/votes/stats", alice, 403)
+    api.req("GET", f"/groups/{gid}/votes/stats", mod, 403)
+
+    stats = api.req("GET", f"/groups/{gid}/votes/stats", admin, 200).json()
+    assert (stats["min_skill"], stats["max_skill"]) == (0, 10)
+    alice_id = _me(api, alice)
+    voters = {v["user_id"]: v for v in stats["voters"]}
+    assert len(voters) == 3  # every member, voter or not
+    assert (voters[alice_id]["player_id"], voters[alice_id]["player_name"]) == (p0, "P0")
+    votes = {(v["voter_id"], v["player_id"]): v["skill"] for v in stats["votes"]}
+    assert votes == {(alice_id, p1): 8, (alice_id, p2): None}
+    by_id = {p["id"]: p for p in stats["players"]}
+    assert (by_id[p1]["vote_skill"], by_id[p1]["vote_count"]) == (8, 1)
